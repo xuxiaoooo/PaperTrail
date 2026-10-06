@@ -1,0 +1,16 @@
+{
+  "scenario": "Local development before/after cleanup; two tracked manuscripts with the main window open",
+  "metric": "Reported sum of process RSS in MB; not physical memory footprint",
+  "before": {
+    "processes": 15,
+    "resident_MB": 1227.6,
+    "tracked_manuscripts": 2
+  },
+  "after": {
+    "processes": 5,
+    "resident_MB": 511.2,
+    "headless_readers": 0,
+    "tracked_manuscripts": 2,
+    "accounts": 2
+  }
+}

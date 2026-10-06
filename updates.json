@@ -1,0 +1,6 @@
+{
+  "format": "papertrail-updates-v1",
+  "version": "1.1",
+  "notes": "PaperTrail for macOS: compact manuscript tracking, local change history, a menu bar overview, and browsers that close when idle.\n面向 macOS 的紧凑稿件跟踪工具：本地变化日志、菜单栏快览与按需运行的读取浏览器。",
+  "downloads": {"macos-arm64":"https://github.com/xuxiaoooo/PaperTrail/releases/download/v1.1.0/PaperTrail-1.1-Mac.dmg"}
+}

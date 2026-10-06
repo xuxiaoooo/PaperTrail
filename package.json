@@ -1,0 +1,32 @@
+{
+  "name": "papertrail-desktop",
+  "productName": "PaperTrail",
+  "version": "1.1.0",
+  "description": "PaperTrail — Track every manuscript. Keep every change.",
+  "author": "PaperTrail",
+  "private": true,
+  "main": "src/desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node scripts/test.cjs",
+    "prepare:mac": "python3 scripts/prepare_runtime.py macos-arm64",
+    "prepare:win": "python3 scripts/prepare_runtime.py windows-x64",
+    "package:mac": "electron-builder --config build/config/electron-builder.cjs --mac dmg --arm64 --publish never",
+    "package:win": "electron-builder --config build/config/electron-builder.cjs --win nsis --x64 --publish never",
+    "verify:package": "node scripts/audit-package.cjs",
+    "smoke": "node scripts/smoke-desktop.cjs",
+    "release:collect": "node scripts/collect-release.cjs",
+    "smoke:package": "node scripts/smoke-package.cjs",
+    "docs:screenshots": "node scripts/capture-docs.cjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.63.0"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "homepage": "https://github.com/xuxiaoooo/PaperTrail#readme",
+  "repository": {"type":"git","url":"https://github.com/xuxiaoooo/PaperTrail.git"},
+  "bugs": {"url":"https://github.com/xuxiaoooo/PaperTrail/issues"}
+}

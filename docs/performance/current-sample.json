@@ -1,0 +1,21 @@
+{
+  "capturedAt": "2026-10-06T14:15:45.864Z",
+  "version": "1.1.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "osVersion": "27.0.1",
+  "metric": "Sum of process RSS, including the application and its child processes; not physical memory footprint",
+  "scenario": "Two synthetic manuscripts; no journal login or active reading browser",
+  "mainOpen": {
+    "processes": 5,
+    "residentMiB": 565.4,
+    "renderers": 1,
+    "readingBrowsers": 0
+  },
+  "background": {
+    "processes": 4,
+    "residentMiB": 425.7,
+    "renderers": 0,
+    "readingBrowsers": 0
+  }
+}
