@@ -8,5 +8,6 @@ dialog{border:1px solid #e2e6ef;border-radius:10px;box-shadow:0 12px 35px #25335
 @media(max-width:305px){.brand span{display:none}.account-head h2{font-size:11px}}@media(prefers-reduced-motion:reduce){.spinning svg{animation:none}#toast{transition:none}}
 
 .brand{display:flex;align-items:center;gap:7px;letter-spacing:0}.brand strong{font-size:14px;font-weight:650}.brand img{width:21px;height:21px}.brand span{margin-left:0;color:#858c83;letter-spacing:.1px}.nav.active{background:#efefe9}.icon-button:hover{background:#eaece5;color:#354a3d}
+.win .title-bar{width:env(titlebar-area-width,calc(100% - 138px));margin-left:env(titlebar-area-x,0px);padding:0 10px}
 
 .paper-card{padding:14px}.paper-card h2{font-size:13px}.status{font-size:12px}.manuscript-number{font-size:12px}.paper-change{font-size:11px}.sync-footer{font-size:10px}.status.decision{color:#a88551}

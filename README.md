@@ -2,13 +2,14 @@
   <img src="assets/icon.png" alt="PaperTrail" width="96" height="96">
   <h1>PaperTrail</h1>
   <p><strong>Every manuscript has a trail.</strong></p>
-  <p>A lightweight manuscript tracker for macOS.<br>专注稿件进度的 macOS 菜单栏工具。</p>
+  <p>A lightweight manuscript tracker for macOS and Windows.<br>专注稿件进度的 macOS 菜单栏与 Windows 托盘工具。</p>
   <p>
     <a href="https://github.com/xuxiaoooo/PaperTrail/releases/latest">Download for Mac / 下载 Mac 版</a> ·
     <a href="#中文">中文</a> · <a href="#english">English</a>
   </p>
   <img src="https://img.shields.io/badge/macOS-14%2B-252b27" alt="macOS 14 or later">
   <img src="https://img.shields.io/badge/Apple_Silicon-arm64-547b68" alt="Apple Silicon arm64">
+  <img src="https://img.shields.io/badge/Windows-x64-547b68" alt="Windows x64">
   <img src="https://img.shields.io/badge/Data-Local-547b68" alt="Local data">
   <img src="https://img.shields.io/badge/License-PolyForm_Noncommercial-8a7654" alt="PolyForm Noncommercial license">
 </div>
@@ -33,7 +34,7 @@
 
 PaperTrail 把你添加的稿件集中在一个紧凑的竖向窗口中。每篇稿件只显示 **期刊名称、当前状态、稿件号和本地变化日期**。无需建立作者档案，也无需为 PaperTrail 注册云端账号。
 
-点击 Mac 菜单栏图标，即可快速查看全部已跟踪稿件。圆形箭头刷新状态；底部分隔线下可打开主窗口或退出应用。
+点击 Mac 菜单栏图标或 Windows 任务栏右下角通知区域的图标，即可快速查看全部已跟踪稿件。圆形箭头刷新状态；底部分隔线下可打开主窗口或退出应用。
 
 ### 轻量化，体现在运行方式
 
@@ -46,7 +47,7 @@ PaperTrail 把你添加的稿件集中在一个紧凑的竖向窗口中。每篇
 
 一次本机开发阶段对比中，两个稿件场景的进程 RSS 总和从 **1,227.6 MB 降至 511.2 MB，约减少 58.4%**，进程数量从 **15 个降至 5 个**。这是单机样本，不代表所有设备上的占用；RSS 总和也不等于实际物理内存占用。当前版本的界面开启／关闭样本和测量方法见 [资源占用记录](docs/performance/README.md)。
 
-离线安装包包含 Electron、Python、Node.js、Chromium 和 Firefox，约 545 MiB。安装和首次启动可离线完成；读取期刊网站状态需要联网。
+离线安装包包含 Electron、Python、Node.js、Chromium 和 Firefox。Mac 当前发行包约 545 MiB；Windows 包大小以构建产物为准。安装和首次启动可离线完成；读取期刊网站状态需要联网。
 
 ### 功能
 
@@ -67,6 +68,7 @@ PaperTrail 把你添加的稿件集中在一个紧凑的竖向窗口中。每篇
 | IEEE Research Exchange 投稿门户 | IEEE 账号和密码 |
 
 使用具体期刊的投稿入口。不同期刊的网站页面可能不同，适配范围及入口格式见 [平台说明](docs/平台适配范围.md)。
+Springer Nature 期刊若使用上表中的 Editorial Manager 或 ScholarOne 入口，可以尝试对应读取器；**SNAPP／Springer Nature Profile 目前尚无专用自动读取器**。
 
 ### 为 Mac 设计
 
@@ -88,13 +90,20 @@ PaperTrail 把你添加的稿件集中在一个紧凑的竖向窗口中。每篇
 
 数据目录：`~/Library/Application Support/PaperTrail/`。日常操作见 [使用指南](docs/使用指南.md)。
 
+### Windows 版本（win 分支）
+
+- Windows x64 使用右下角通知区域图标。快览浮窗会贴近图标并避开任务栏；关闭主窗口后仍可从托盘打开。
+- 主窗口使用系统窗口按钮与一体式顶栏；应用菜单按 `Alt` 显示。密码使用当前 Windows 用户的 DPAPI 加密保存在本机。
+- Windows 安装包为 `PaperTrail-1.1-Windows-Offline.exe`，由 [GitHub Actions 构建](https://github.com/xuxiaoooo/PaperTrail/actions/workflows/build.yml)产生。下载 `PaperTrail-windows-x64` 构建产物后解压，再运行安装程序。此分支的安装包未进行代码签名。
+- 数据目录：`%LOCALAPPDATA%\PaperTrail\`。安装包已内置 Python、Node.js 和读取所需的浏览器组件。
+
 ## English
 
 ### Manuscript progress at a glance
 
 PaperTrail brings the manuscripts you add into a compact portrait window. Each card shows **journal, current status, manuscript number, and the latest local change date**. It requires no author profile or separate PaperTrail cloud account.
 
-Click the macOS menu bar icon to see every tracked manuscript. Refresh from the popover, open the main window, or quit from the footer.
+Click the macOS menu bar icon or the Windows notification-area icon to see every tracked manuscript. Refresh from the popover, open the main window, or quit from the footer.
 
 ### Designed for quiet background use
 
@@ -107,7 +116,7 @@ Click the macOS menu bar icon to see every tracked manuscript. Refresh from the 
 
 A local development comparison with two tracked manuscripts recorded total process RSS falling from **1,227.6 MB to 511.2 MB, about 58.4%**, and the process count from **15 to 5**. This is a single-machine observation, not a memory guarantee. Summed RSS is not physical memory footprint. See [resource measurements](docs/performance/README.md) for the current open-window/background samples and methodology.
 
-The offline installer includes Electron, Python, Node.js, Chromium and Firefox and is approximately 545 MiB. Installation and first launch work offline; checking publisher websites needs an internet connection.
+The offline installer includes Electron, Python, Node.js, Chromium and Firefox. The current Mac release is approximately 545 MiB; check the build artifact for the Windows size. Installation and first launch work offline; checking publisher websites needs an internet connection.
 
 ### Features
 
@@ -128,6 +137,7 @@ The offline installer includes Electron, Python, Node.js, Chromium and Firefox a
 | IEEE Research Exchange portal | IEEE username and password |
 
 Use the journal-specific submission URL. Journal pages and login requirements vary; see [supported entry points](docs/平台适配范围.md).
+Springer Nature journals using a supported Editorial Manager or ScholarOne entry point can use the corresponding reader. **SNAPP and Springer Nature Profile do not yet have a dedicated automatic reader.**
 
 ### Made for Mac
 
@@ -148,6 +158,13 @@ Use the journal-specific submission URL. Journal pages and login requirements va
 **The current distribution is locally signed and is not Apple-notarized.** macOS may show a developer-verification notice on first launch. See [Apple's guidance](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) for how the system handles these apps. SHA-256 checksums and complete source are provided with the release.
 
 Local data directory: `~/Library/Application Support/PaperTrail/`.
+
+### Windows build (win branch)
+
+- On Windows x64, the overview opens from the notification area at the bottom right. Its popover stays inside the display work area and the app can remain in the tray after the main window closes.
+- The main window keeps native window controls in a unified title bar; press `Alt` for the application menu. Passwords are encrypted for the current Windows user with DPAPI.
+- Download the `PaperTrail-windows-x64` artifact from the [GitHub Actions build](https://github.com/xuxiaoooo/PaperTrail/actions/workflows/build.yml), extract it, and run `PaperTrail-1.1-Windows-Offline.exe`. This branch's installer is not code-signed.
+- Local data directory: `%LOCALAPPDATA%\PaperTrail\`. Python, Node.js and both reading browsers are bundled.
 
 ## Development / 开发
 

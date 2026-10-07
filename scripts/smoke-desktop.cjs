@@ -21,7 +21,8 @@ async function waitForDock(visible){
   app=await launch();let page=await app.firstWindow();
   page.on('pageerror',error=>report.errors.push(error.message));
   await page.getByRole('heading',{name:'投稿状态'}).waitFor({timeout:30000});
-  const geometry=await app.evaluate(({BrowserWindow,screen,app})=>({bounds:BrowserWindow.getAllWindows()[0].getBounds(),area:screen.getPrimaryDisplay().bounds,dock:process.platform==='darwin'?app.dock.isVisible():null,name:app.getName()}));
+  const geometry=await app.evaluate(({BrowserWindow,screen,app})=>({bounds:BrowserWindow.getAllWindows()[0].getBounds(),area:screen.getPrimaryDisplay().bounds,dock:process.platform==='darwin'?app.dock.isVisible():null,
+    menuBarVisible:process.platform==='win32'?BrowserWindow.getAllWindows()[0].isMenuBarVisible():null,name:app.getName()}));
   assert.ok(Math.abs(geometry.bounds.width-Math.max(320,Math.round(geometry.area.width/4)))<=1);
   assert.ok(Math.abs(geometry.bounds.height-Math.max(480,Math.round(geometry.area.height*2/3)))<=1);
   assert.ok(geometry.bounds.height>geometry.bounds.width);
@@ -30,6 +31,7 @@ async function waitForDock(visible){
   assert.equal(await page.locator('.brand img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   if(process.platform==='darwin')assert.equal(geometry.dock,true);
+  if(process.platform==='win32')assert.equal(geometry.menuBarVisible,false);
   await page.screenshot({path:path.join(output,binary?'packaged-empty.png':'desktop-empty.png')});
   assert.equal(await page.getByRole('heading',{name:'欢迎使用 PaperTrail'}).count(),0);
   report.checks.push('PaperTrail branding and icon load; window is one quarter of screen width and two thirds of screen height');
@@ -102,7 +104,7 @@ async function waitForDock(visible){
   const hidden=await app.evaluate(({BrowserWindow,app})=>({windows:BrowserWindow.getAllWindows().length,dock:process.platform==='darwin'?app.dock.isVisible():null}));
   assert.equal(hidden.windows,0);
   if(process.platform==='darwin')assert.equal(hidden.dock,false);
-  report.checks.push('Closing the main window releases its renderer and hides the Dock icon');
+  report.checks.push('Closing the main window releases its renderer while the tray remains available');
   const opened=app.waitForEvent('window');
   await app.evaluate((_,file)=>process.getBuiltinModule('module').createRequire(file)(file).toggleTrayPopup(),controller);
   const quick=await opened;
@@ -112,9 +114,17 @@ async function waitForDock(visible){
   await quick.getByRole('button',{name:'打开主页面'}).waitFor();
   await quick.getByRole('button',{name:'退出',exact:true}).waitFor();
   assert.equal(await quick.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  const trayGeometry=await app.evaluate(({BrowserWindow,screen})=>{
+    const bounds=BrowserWindow.getAllWindows()[0].getBounds();
+    return {bounds,area:screen.getDisplayMatching(bounds).workArea};
+  });
+  assert.ok(trayGeometry.bounds.x>=trayGeometry.area.x);
+  assert.ok(trayGeometry.bounds.y>=trayGeometry.area.y);
+  assert.ok(trayGeometry.bounds.x+trayGeometry.bounds.width<=trayGeometry.area.x+trayGeometry.area.width);
+  assert.ok(trayGeometry.bounds.y+trayGeometry.bounds.height<=trayGeometry.area.y+trayGeometry.area.height);
   await waitForDock(false);
   await quick.screenshot({path:path.join(output,'tray-overview.png')});
-  report.checks.push('Menu-bar popover lists every tracked manuscript with status and footer actions without opening the main window');
+  report.checks.push('Tray popover fits the display and lists every tracked manuscript without opening the main window');
   await app.evaluate(()=>{
     const original=globalThis.fetch;
     globalThis.fetch=async(url,options)=>String(url).endsWith('/api/refresh')
@@ -133,7 +143,7 @@ async function waitForDock(visible){
   await waitForDock(true);
   if(process.platform==='darwin')assert.equal(await app.evaluate(({app})=>app.dock.isVisible()),true);
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length),1);
-  report.checks.push('Opening the main page restores the Dock icon and releases the popover');
+  report.checks.push('Opening the main page releases the popover and restores the main window');
 
   await page.getByRole('button',{name:'期刊账号',exact:true}).click();
   await page.getByRole('button',{name:'编辑期刊'}).click();
@@ -158,7 +168,7 @@ async function waitForDock(visible){
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length),0);
   await waitForDock(false);
   if(process.platform==='darwin')assert.equal(await app.evaluate(({app})=>app.dock.isVisible()),false);
-  report.checks.push('Hidden startup creates no renderer and no Dock icon');
+  report.checks.push('Hidden startup creates no renderer');
   const lastWindow=app.waitForEvent('window');
   await app.evaluate((_,file)=>process.getBuiltinModule('module').createRequire(file)(file).toggleTrayPopup(),controller);
   const lastQuick=await lastWindow;

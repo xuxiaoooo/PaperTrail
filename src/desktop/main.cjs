@@ -107,6 +107,7 @@ function createWindow(setup=false){
   window=new BrowserWindow({...size,...(!setup&&lastWindowBounds?lastWindowBounds:{}),minWidth:320,minHeight:400,show:false,
     title:brand.name+' · Manuscripts',backgroundColor:'#f6f5f2',icon:path.join(assets,'icon.png'),
     ...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:12,y:13}}:{}),
+    ...(process.platform==='win32'?{titleBarStyle:'hidden',titleBarOverlay:{color:'#ffffff',symbolColor:'#354a3d',height:42},autoHideMenuBar:true}:{}),
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:true}});
   window.once('ready-to-show',()=>{window.show();syncDock();});
   window.on('close',()=>{mainClosing=true;lastWindowBounds=window.getBounds();});
@@ -150,25 +151,30 @@ function createMenus(){
     {label:'帮助',submenu:[{label:'备份与恢复',click:()=>action('profile')},{label:'检查更新',click:()=>checkUpdates()},{label:'打开数据目录',click:()=>shell.openPath(dataPath)}]}];
   if(!app.isPackaged)applicationMenu[2].submenu.push({role:'toggleDevTools'});
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenu));
+  if(process.platform==='win32')for(const current of BrowserWindow.getAllWindows())current.setMenuBarVisibility(false);
   const trayImage=process.platform==='darwin'?nativeImage.createFromPath(path.join(assets,'trayTemplate.png')):
     nativeImage.createFromPath(path.join(assets,'icon.png')).resize({width:20,height:20});
   if(process.platform==='darwin')trayImage.setTemplateImage(true);
   tray=new Tray(trayImage);tray.setToolTip(brand.name);
   tray.on('click',()=>toggleTrayPopup());tray.on('right-click',()=>toggleTrayPopup());
 }
+function trayPopupBounds(height){
+  const anchor=tray.getBounds();
+  const display=anchor.width>0&&anchor.height>0?
+    screen.getDisplayNearestPoint({x:anchor.x+anchor.width/2,y:anchor.y+anchor.height/2}):screen.getPrimaryDisplay();
+  return popupBounds(anchor,display.workArea,height);
+}
 async function updateTray(){
   const state=await api('/api/overview');
   if(popup&&!popup.isDestroyed()){
-    const anchor=tray.getBounds(),area=screen.getDisplayNearestPoint({x:anchor.x,y:anchor.y}).workArea;
     const height=Math.min(520,Math.max(190,state.manuscripts.length*84+114));
-    popup.setBounds(popupBounds(anchor,area,height));popup.webContents.send('tray:state',state);
+    popup.setBounds(trayPopupBounds(height));popup.webContents.send('tray:state',state);
   }
   return state;
 }
 async function toggleTrayPopup(){
   if(popup&&!popup.isDestroyed()){closePopup();return;}
-  const anchor=tray.getBounds(),area=screen.getDisplayNearestPoint({x:anchor.x,y:anchor.y}).workArea;
-  popup=new BrowserWindow({...popupBounds(anchor,area,220),show:false,frame:false,resizable:false,movable:false,
+  popup=new BrowserWindow({...trayPopupBounds(220),show:false,frame:false,resizable:false,movable:false,
     minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,hasShadow:true,
     ...(process.platform==='darwin'?{type:'panel'}:{}),title:brand.name+' · Overview',backgroundColor:'#ffffff',
     webPreferences:{preload:path.join(__dirname,'tray-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});

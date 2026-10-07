@@ -238,6 +238,7 @@ async function start(){
       else if(action==='reload')load().then(render).catch(()=>{});
     });
     document.body.classList.toggle('mac',desktopInfo.platform==='darwin');
+    document.body.classList.toggle('win',desktopInfo.platform==='win32');
   }
   render();
   setInterval(async()=>{
