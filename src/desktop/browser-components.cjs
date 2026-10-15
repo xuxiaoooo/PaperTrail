@@ -1,9 +1,21 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),readline=require('node:readline');
-const {spawn}=require('node:child_process');
+const {spawn,execFileSync}=require('node:child_process');
+
+function proxyEnvironment(env=process.env,platform=process.platform){
+  if(env.HTTPS_PROXY||env.https_proxy||platform!=='darwin')return {...env};
+  try{
+    const settings=execFileSync('/usr/sbin/scutil',['--proxy'],{encoding:'utf8',timeout:3000});
+    if(!/HTTPSEnable\s*:\s*1\b/.test(settings))return {...env};
+    const host=/HTTPSProxy\s*:\s*([^\s]+)/.exec(settings)?.[1];
+    const port=/HTTPSPort\s*:\s*(\d+)/.exec(settings)?.[1];
+    if(host&&port)return {...env,HTTPS_PROXY:`http://${host}:${port}`,HTTP_PROXY:env.HTTP_PROXY||`http://${host}:${port}`};
+  }catch{}
+  return {...env};
+}
 
 function componentDirectories(moduleRoot,cache,platform=process.platform){
-  const names=['chromium','chromium-headless-shell','firefox','ffmpeg'];
+  const names=['chromium','firefox'];
   if(platform==='win32')names.push('winldd');
   const metadata=JSON.parse(fs.readFileSync(path.join(moduleRoot,'browsers.json'),'utf8'));
   return names.map(name=>{
@@ -26,8 +38,9 @@ function downloadComponents({node,moduleRoot,cache,onProgress=()=>{},onChild=()=
   if(componentsReady(moduleRoot,cache))return Promise.resolve({downloaded:false});
   fs.mkdirSync(cache,{recursive:true});
   return new Promise((resolve,reject)=>{
-    const child=spawn(node,[path.join(moduleRoot,'cli.js'),'install','chromium','firefox'],{
-      windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,
+    const child=spawn(node,[path.join(moduleRoot,'cli.js'),'install','--no-shell','chromium','firefox'],{
+      windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...proxyEnvironment(),
+        ELECTRON_RUN_AS_NODE:'1',
         PLAYWRIGHT_BROWSERS_PATH:cache,PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT:'120000',
         PLAYWRIGHT_SKIP_BROWSER_GC:'1',CI:'1'}});
     onChild(child);
@@ -48,4 +61,4 @@ function downloadComponents({node,moduleRoot,cache,onProgress=()=>{},onChild=()=
     });
   });
 }
-module.exports={componentDirectories,componentsReady,componentCacheDirectory,downloadComponents};
+module.exports={componentDirectories,componentsReady,componentCacheDirectory,downloadComponents,proxyEnvironment};

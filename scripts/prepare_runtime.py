@@ -12,7 +12,9 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CACHE = Path.home() / 'Library/Caches/PaperTrailBuild/downloads' if sys.platform == 'darwin' else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'PaperTrailBuildCache/downloads'
+CACHE = Path(os.environ.get('PAPERTRAIL_BUILD_CACHE') or (
+    Path.home() / 'Library/Caches/PaperTrailBuild/downloads' if sys.platform == 'darwin'
+    else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'PaperTrailBuildCache/downloads'))
 CACHE.mkdir(parents=True, exist_ok=True)
 TARGET = sys.argv[1]
 if TARGET not in ('macos-arm64', 'windows-x64'):
@@ -20,7 +22,6 @@ if TARGET not in ('macos-arm64', 'windows-x64'):
 DEST = ROOT / 'build/runtime' / TARGET
 DEST.mkdir(parents=True, exist_ok=True)
 PYTHON_VERSION = '3.13.16'
-NODE_VERSION = '24.21.0'
 PYTHON_MAC = 'https://github.com/astral-sh/python-build-standalone/releases/download/20261001/cpython-3.13.16%2B20261001-aarch64-apple-darwin-install_only_stripped.tar.gz'
 
 
@@ -50,27 +51,9 @@ if not (DEST / 'python/.ready').exists():
             bundle.extractall(DEST / 'python')
     (DEST / 'python/.ready').write_text(PYTHON_VERSION)
 
-node_platform = 'darwin-arm64' if TARGET == 'macos-arm64' else 'win-x64'
-if not (DEST / 'node/.ready').exists():
-    name = f'node-v{NODE_VERSION}-{node_platform}'
-    if TARGET == 'macos-arm64':
-        archive = download(f'https://nodejs.org/dist/v{NODE_VERSION}/{name}.tar.gz', name + '.tar.gz')
-        unpack_tar(archive, DEST)
-    else:
-        archive = download(f'https://nodejs.org/dist/v{NODE_VERSION}/{name}.zip', name + '.zip')
-        with zipfile.ZipFile(archive) as bundle:
-            for member in bundle.infolist():
-                relative = Path(member.filename).parts[1:]
-                if relative and relative[0] in ('node.exe', 'LICENSE', 'CHANGELOG.md', 'README.md'):
-                    bundle.extract(member, DEST)
-    (DEST / name).rename(DEST / 'node')
-    # Documentation and headers are not needed to execute the bundled readers.
-    for entry in ('include', 'share', 'lib', 'node_modules'):
-        if (DEST / 'node' / entry).is_dir():
-            shutil.rmtree(DEST / 'node' / entry)
-    for name in ('bin/npm', 'bin/npx', 'bin/corepack', 'npm', 'npx', 'npm.cmd', 'npx.cmd', 'npm.ps1', 'npx.ps1', 'install_tools.bat', 'nodevars.bat'):
-        (DEST / 'node' / name).unlink(missing_ok=True)
-    (DEST / 'node/.ready').write_text(NODE_VERSION)
+# The packaged Electron executable supplies Node via ELECTRON_RUN_AS_NODE.
+if (DEST / 'node').exists():
+    shutil.rmtree(DEST / 'node')
 
 module = ROOT / 'node_modules/playwright-core'
 if not module.is_dir():
@@ -96,7 +79,11 @@ if TARGET == 'windows-x64':
     env['PLAYWRIGHT_HOST_PLATFORM_OVERRIDE'] = 'win64'
 else:
     env['PLAYWRIGHT_HOST_PLATFORM_OVERRIDE'] = 'mac14-arm64'
-subprocess.run([shutil.which('node'), str(module / 'cli.js'), 'install', 'chromium', 'firefox'], env=env, check=True)
+subprocess.run([shutil.which('node'), str(module / 'cli.js'), 'install', '--no-shell', 'chromium', 'firefox'], env=env, check=True)
+for name in ('chromium_headless_shell', 'ffmpeg'):
+    for obsolete in (DEST / 'browsers').glob(name + '-*'):
+        if obsolete.is_dir():
+            shutil.rmtree(obsolete)
 if TARGET == 'macos-arm64':
     browser_metadata = json.loads((module / 'browsers.json').read_text())
     revision = next(browser['revision'] for browser in browser_metadata['browsers'] if browser['name'] == 'firefox')
@@ -107,6 +94,6 @@ if TARGET == 'macos-arm64':
     (resources / 'browser').mkdir(exist_ok=True)
     (resources / 'browser/papertrail.ini').write_text(configuration)
 (DEST / 'runtime-manifest.json').write_text(json.dumps({'target': TARGET, 'python': PYTHON_VERSION,
-    'node': NODE_VERSION, 'playwright': json.loads((module / 'package.json').read_text())['version'],
+    'node': 'electron-run-as-node', 'playwright': json.loads((module / 'package.json').read_text())['version'],
     'tzdata': metadata['info']['version']}, indent=2))
 print('Runtime ready: ' + TARGET, flush=True)

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
-const {releaseFor,displayVersion} = require('./update.cjs');
+const {githubReleaseFor,downloadVerified,stageMacUpdate,displayVersion} = require('./update.cjs');
 const brand=require('./brand.cjs');
 const {dataPath:resolveDataPath}=require('./data-path.cjs');
 const {mainSize,popupBounds}=require('./window-layout.cjs');
@@ -28,6 +28,7 @@ const singleInstance = app.requestSingleInstanceLock();
 let window, popup, tray, backend, backendBase, quitting=false, stopped=false, mainClosing=false, trayTimer, trayRefresh, lastWindowBounds;
 let restartCount=0;
 let componentInstaller;
+let updateInProgress=false;
 const token=crypto.randomBytes(32).toString('base64url');
 const configPath=path.join(dataPath,'desktop-settings.json');
 const defaults={keepRunning:true,startAtLogin:false};
@@ -35,6 +36,24 @@ function readConfig(){try{return {...defaults,...JSON.parse(fs.readFileSync(conf
 let preferences=readConfig();
 function saveConfig(){fs.mkdirSync(dataPath,{recursive:true});fs.writeFileSync(configPath,JSON.stringify(preferences,null,2),{mode:0o600});}
 function log(message){fs.mkdirSync(path.join(dataPath,'logs'),{recursive:true});fs.appendFileSync(path.join(dataPath,'logs/desktop.log'),`${new Date().toISOString()} ${message}\n`);}
+function cleanupPreviousUpdate(){
+  const marker=path.join(dataPath,'updates/pending-cleanup.json');
+  if(!fs.existsSync(marker))return;
+  setTimeout(()=>{
+    try{
+      const {target,backup,workspace}=JSON.parse(fs.readFileSync(marker,'utf8'));
+      const current=path.resolve(path.dirname(process.execPath),'../..');
+      if(target===current&&path.dirname(backup)===path.dirname(current)&&
+          /^\.PaperTrail-[\d.]+-previous\.app$/.test(path.basename(backup))){
+        fs.rmSync(backup,{recursive:true,force:true});
+        if(workspace&&path.dirname(workspace)===path.join(dataPath,'updates')&&
+            /^\d+\.\d+(?:\.\d+)?$/.test(path.basename(workspace)))
+          fs.rmSync(workspace,{recursive:true,force:true});
+        fs.rmSync(marker,{force:true});
+      }
+    }catch(error){log('update cleanup: '+error.message);}
+  },60000).unref();
+}
 function syncDock(){if(process.platform==='darwin')app.setActivationPolicy(
   window&&!window.isDestroyed()&&window.isVisible()?'regular':'accessory');}
 function closePopup(){clearInterval(trayTimer);trayTimer=null;if(popup&&!popup.isDestroyed())popup.destroy();popup=null;}
@@ -53,14 +72,15 @@ async function api(endpoint,body,timeout=30000){
 }
 function startBackend(){return new Promise((resolve,reject)=>{
   const python=process.platform==='darwin'?path.join(runtime,'python/bin/python3'):path.join(runtime,'python/python.exe');
-  const node=process.platform==='darwin'?path.join(runtime,'node/bin/node'):path.join(runtime,'node/node.exe');
-  if(!fs.existsSync(python)||!fs.existsSync(node))return reject(new Error('运行组件缺失，请重新安装完整安装包。'));
+  const node=process.execPath;
+  if(!fs.existsSync(python))return reject(new Error('运行组件缺失，请重新安装完整安装包。'));
   const env={...process.env,PAPERTRAIL_DATA_DIR:dataPath,PAPERTRAIL_SESSION_TOKEN:token,
     PAPERTRAIL_NODE:node,PAPERTRAIL_BROWSER_MODULE:path.join(runtime,'browser-module/playwright-core/index.mjs'),
     PAPERTRAIL_KEYCHAIN_HELPER:path.join(runtime,'keychain-helper'),
     PAPERTRAIL_TIMEZONE:Intl.DateTimeFormat().resolvedOptions().timeZone,
+    PAPERTRAIL_VERSION:displayVersion(app.getVersion()),
     PLAYWRIGHT_BROWSERS_PATH:componentCache,PYTHONTZPATH:path.join(runtime,'tzdata/zoneinfo'),
-    PYTHONUTF8:'1',PYTHONUNBUFFERED:'1',PYTHONDONTWRITEBYTECODE:'1'};
+    PYTHONUTF8:'1',PYTHONUNBUFFERED:'1',PYTHONDONTWRITEBYTECODE:'1',ELECTRON_RUN_AS_NODE:'1'};
   delete env.PYTHONHOME;delete env.PYTHONPATH;
   const child=spawn(python,['-B','-c','import sys,runpy,os; script=sys.argv.pop(1); sys.path.insert(0,os.path.dirname(script)); runpy.run_path(script,run_name="__main__")',path.join(source,'backend/server.py'),'--port','0'],{
     cwd:path.join(source,'backend'),env,stdio:['ignore','pipe','pipe'],windowsHide:true,detached:process.platform!=='win32'});
@@ -123,9 +143,10 @@ async function prepareComponents(){
   while(!quitting){
     try{
       await new Promise((resolve,reject)=>{
-        const node=process.platform==='darwin'?path.join(runtime,'node/bin/node'):path.join(runtime,'node/node.exe');
+        const node=process.execPath;
         const child=spawn(node,[path.join(source,'desktop/install-components.cjs'),componentCache],{
-          windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
+          windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe'],
+          env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
         componentInstaller=child;
         readline.createInterface({input:child.stdout}).on('line',line=>{
           try{const event=JSON.parse(line);if(!window?.isDestroyed())window?.webContents.send('desktop:setup-progress',event);}catch{}
@@ -213,20 +234,46 @@ async function restoreData(){
   return api('/api/backup/restore',{data});
 }
 async function checkUpdates(){
-  const config=JSON.parse(fs.readFileSync(path.join(resources,app.isPackaged?'release-config.json':'build/config/release-config.json'),'utf8'));
-  if(!config.updateManifestUrl){
-    await dialog.showMessageBox(window,{message:'PaperTrail '+displayVersion(app.getVersion()),detail:'当前使用本地构建版本，尚未配置在线更新。'});
-    return {configured:false};
-  }
+  if(updateInProgress)return {error:'更新正在进行'};
+  updateInProgress=true;
   try{
-    if(!allowExternal(config.updateManifestUrl))throw new Error('更新地址需要使用 HTTPS');
-    const response=await fetch(config.updateManifestUrl,{signal:AbortSignal.timeout(15000)});
+    const response=await net.fetch('https://api.github.com/repos/xuxiaoooo/PaperTrail/releases/latest',{
+      headers:{Accept:'application/vnd.github+json','User-Agent':'PaperTrail/'+app.getVersion()},
+      signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw new Error('暂时无法检查更新');
-    const result=releaseFor(await response.json(),target,app.getVersion());
-    if(!result.newer){await dialog.showMessageBox(window,{message:'已是最新版本',detail:displayVersion(app.getVersion())});return result;}
-    const choice=await dialog.showMessageBox(window,{type:'info',buttons:['下载新版','稍后'],cancelId:1,message:'发现 '+brand.name+' '+result.version,detail:result.notes||'下载后覆盖安装，稿件和设置会保留。'});
-    if(choice.response===0)await shell.openExternal(result.url);return result;
-  }catch(error){await dialog.showMessageBox(window,{type:'warning',message:'检查更新未完成',detail:error.message});return {error:error.message};}
+    const result=githubReleaseFor(await response.json(),target,app.getVersion());
+    if(!result.newer){await dialog.showMessageBox(window,{message:'已是最新版本',detail:'当前版本 '+displayVersion(app.getVersion())});return result;}
+    const choice=await dialog.showMessageBox(window,{type:'info',buttons:['下载并安装','稍后'],cancelId:1,
+      message:'发现 '+brand.name+' '+displayVersion(result.version),
+      detail:`当前版本 ${displayVersion(app.getVersion())} · 安装包 ${(result.size/1024/1024).toFixed(1)} MiB\n下载后将校验 SHA-256，并自动重启应用。稿件和设置保留在本机。`});
+    if(choice.response!==0)return {cancelled:true,version:result.version};
+    const workspace=path.join(dataPath,'updates',result.version);
+    const installer=await downloadVerified(result,workspace,net.fetch,(received,total)=>app.setProgressBar(received/total));
+    app.setProgressBar(-1);
+    if(process.platform==='darwin'){
+      const targetApp=path.resolve(path.dirname(process.execPath),'../..');
+      const staged=await stageMacUpdate(result,installer,targetApp,workspace);
+      const backup=path.join(path.dirname(targetApp),`.PaperTrail-${displayVersion(app.getVersion())}-previous.app`);
+      fs.rmSync(backup,{recursive:true,force:true});
+      const helper=path.join(source,'desktop/apply-update.cjs');
+      const logPath=path.join(dataPath,'logs/update.log');
+      const marker=path.join(dataPath,'updates/pending-cleanup.json');
+      fs.mkdirSync(path.dirname(logPath),{recursive:true});
+      spawn(process.execPath,[helper,JSON.stringify({pid:process.pid,target:targetApp,stage:staged,backup,marker,workspace}),logPath],{
+        detached:true,stdio:'ignore',env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}}).unref();
+    }else{
+      const script=path.join(workspace,'apply-update.ps1');
+      fs.writeFileSync(script,`param([int]$ParentPid,[string]$Installer,[string]$InstallDir,[string]$LogPath)\nWait-Process -Id $ParentPid -ErrorAction SilentlyContinue\ntry {\n  $setup = Start-Process -FilePath $Installer -ArgumentList '/S' -Wait -PassThru\n  if ($setup.ExitCode -ne 0) { throw "Installer exited with code $($setup.ExitCode)" }\n  Remove-Item -LiteralPath $Installer -Force -ErrorAction SilentlyContinue\n  Start-Process -FilePath (Join-Path $InstallDir 'PaperTrail.exe')\n} catch { Add-Content -LiteralPath $LogPath -Value $_.Exception.Message }\n`,{mode:0o600});
+      const logPath=path.join(dataPath,'logs/update.log');
+      fs.mkdirSync(path.dirname(logPath),{recursive:true});
+      spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,
+        '-ParentPid',String(process.pid),'-Installer',installer,'-InstallDir',path.dirname(process.execPath),'-LogPath',logPath],
+        {detached:true,windowsHide:true,stdio:'ignore'}).unref();
+    }
+    app.quit();
+    return {installing:true,version:result.version};
+  }catch(error){app.setProgressBar(-1);await dialog.showMessageBox(window,{type:'warning',message:'检查或安装更新未完成',detail:error.message});return {error:error.message};}
+  finally{updateInProgress=false;}
 }
 function registerIpc(){
   function handle(name,callback){ipcMain.handle('desktop:'+name,async(event,value)=>{
@@ -258,6 +305,7 @@ if(!singleInstance){app.quit();}else{
     await prepareComponents();
     if(quitting)return;
     await startBackend();
+    cleanupPreviousUpdate();
     if(app.isPackaged)app.setLoginItemSettings({openAtLogin:preferences.startAtLogin,args:['--hidden']});
     protocol.handle('papertrail',async request=>{
       const requested=new URL(request.url);

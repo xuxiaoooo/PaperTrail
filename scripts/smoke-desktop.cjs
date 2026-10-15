@@ -66,6 +66,7 @@ async function waitForDock(visible){
   await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.getByRole('listitem').getByText(/变化 .* · 1 次/).waitFor();
   await page.getByRole('button',{name:'变化日志'}).click();
+  await page.locator('.log-group summary').click();
   await page.getByText('审稿中 → 等待决定').waitFor();
   report.checks.push('Local status change count, date and log update after editing');
   await page.screenshot({path:path.join(output,binary?'packaged-log.png':'desktop-log.png')});
@@ -74,7 +75,16 @@ async function waitForDock(visible){
   const state=await page.evaluate(async()=> (await fetch('/api/state')).json());
   assert.equal(state.auto_refresh.enabled,true);
   assert.deepEqual(state.auto_refresh.times,['00:00',...Array.from({length:16},(_,i)=>String(i+8).padStart(2,'0')+':00')]);
-  report.checks.push('Hourly 08:00–24:00 schedule is active');
+  await page.getByRole('dialog').getByRole('button',{name:'删除 00:00'}).click();
+  await page.getByRole('dialog').getByLabel('新增刷新时间').fill('12:30');
+  await page.getByRole('dialog').getByRole('button',{name:'添加时间点'}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'保存'}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  const custom=await page.evaluate(async()=> (await fetch('/api/state')).json());
+  assert.ok(custom.auto_refresh.times.includes('12:30'));
+  assert.ok(!custom.auto_refresh.times.includes('00:00'));
+  report.checks.push('Custom refresh slots are saved through the UI');
+  await page.getByRole('button',{name:'设置与数据'}).click();
   const backupFile=path.join(data,'verification.papertrail');
   await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},backupFile);
   await page.getByRole('dialog').getByRole('button',{name:'导出备份'}).click();

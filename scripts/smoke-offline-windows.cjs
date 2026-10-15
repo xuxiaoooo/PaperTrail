@@ -23,8 +23,8 @@ const launch=()=>_electron.launch({executablePath:path.join(install,brand.englis
  assert.ok(fs.existsSync(path.join(install,brand.englishName+'.exe')));
  assert.ok(componentsReady(path.join(runtime,'browser-module/playwright-core'),path.join(runtime,'browsers'),'win32'));
  report.installSeconds=Math.round((Date.now()-started)/1000);
- report.checks.push('Silent NSIS installation completes with an unreachable download proxy and all five bundled components');
- execFileSync(path.join(runtime,'node/node.exe'),[path.join(root,'scripts/smoke-browsers.cjs')],{env:{...env,PAPERTRAIL_TEST_RUNTIME:runtime},timeout:90000,stdio:'inherit'});
+ report.checks.push('Silent NSIS installation completes with an unreachable download proxy and the bundled browsers');
+ execFileSync(path.join(install,brand.englishName+'.exe'),[path.join(root,'scripts/smoke-browsers.cjs')],{env:{...env,ELECTRON_RUN_AS_NODE:'1',PAPERTRAIL_TEST_RUNTIME:runtime},timeout:90000,stdio:'inherit'});
  report.checks.push('Installed Chromium and Firefox launch and render local content');
  app=await launch();let page=await app.firstWindow();
  page.on('pageerror',error=>report.errors.push(error.message));

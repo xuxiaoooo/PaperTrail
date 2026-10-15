@@ -5,12 +5,10 @@ import {readResearchExchangePage} from './research_exchange_rows.mjs';
 import {advanceIeeeLogin} from './research_exchange_login.mjs';
 import {saveReaderSession} from './reader_session.mjs';
 import {runReader} from './reader_worker.mjs';
+import {ieeeLoginFailure} from './ieee_response.mjs';
+import {matchesTracked} from './manuscript_identity.mjs';
 
 let context, page;
-const key = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-const baseNumber = value => String(value || '').replace(/(?:\.R|R)\d+$/i, '');
-const matches = (paper, row) => paper.number ? baseNumber(paper.number) === baseNumber(row.number)
-  : key(paper.title_en) && key(paper.title_en) === key(row.title_en);
 
 async function read(input) {
   let stage = 'browser', emptyLoginResponse = false;
@@ -32,7 +30,9 @@ async function read(input) {
     page.on('response', onResponse);
     stage = 'login';
     try {
-      await page.goto(input.login_url, {waitUntil:'domcontentloaded'});
+      // A nearby repeat read can use the already authenticated dashboard.
+      if (!await page.locator('.submissionsList').isVisible().catch(() => false))
+        await page.goto(input.login_url, {waitUntil:'domcontentloaded'});
       const deadline = Date.now() + (input.interactive ? 240000 : 75000);
       let reloadedEmpty = false;
       while (Date.now() < deadline) {
@@ -44,12 +44,12 @@ async function read(input) {
           if (!reloadedEmpty) {
             reloadedEmpty = true;
             await page.reload({waitUntil:'domcontentloaded'});
-          } else if (!input.interactive) throw new Error('ieee_login_unavailable');
+          } else if (!input.interactive) throw new Error('verification_required');
         }
         await page.waitForTimeout(400);
       }
       if (!await page.locator('.submissionsList').isVisible().catch(() => false))
-        throw new Error(emptyLoginResponse ? 'ieee_login_unavailable' : 'login_incomplete');
+        throw new Error(ieeeLoginFailure({emptyLoginResponse,title:await page.title().catch(()=> '')}));
     } finally {page.removeListener('response', onResponse);}
     input.password = '';
     stage = 'read';
@@ -57,8 +57,7 @@ async function read(input) {
     const found = new Map();
     if (!input.connect_only) for (let batch = 0; batch < 100; batch++) {
       const rows = await readResearchExchangePage(page, input.journal_name);
-      for (const row of rows.filter(row => input.tracked.some(paper => matches(paper, row)))) found.set(row.number, row);
-      if (input.tracked.every(paper => [...found.values()].some(row => matches(paper, row)))) break;
+      for (const row of rows.filter(row => input.tracked.some(paper => matchesTracked(paper, row)))) found.set(row.number, row);
       const count = await page.locator('.submissionsListItem').count();
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       try {
@@ -69,10 +68,10 @@ async function read(input) {
     process.stdout.write(JSON.stringify({ok:true, rows:[...found.values()]}) + '\n');
   } catch (error) {
     let code = stage === 'browser' ? 'browser_unavailable' : stage === 'read' ? 'read_incomplete' : 'login_incomplete';
-    if (['unsupported_journal','credentials_rejected','ieee_login_unavailable'].includes(error.message)) code = error.message;
+    if (['unsupported_journal','credentials_rejected','ieee_login_unavailable','verification_required'].includes(error.message)) code = error.message;
     if (page) {
       const title = await page.title().catch(() => '');
-      if (/just a moment|请稍候/i.test(title)) code = 'verification_required';
+      if (ieeeLoginFailure({title}) === 'verification_required') code = 'verification_required';
       for (const frame of page.frames()) {
         const passwords = frame.locator('input[type="password"]');
         for (const password of await passwords.all()) if (await password.isVisible().catch(() => false)) await password.fill('').catch(() => {});

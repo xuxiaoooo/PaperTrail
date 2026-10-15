@@ -5,7 +5,7 @@ const {componentsReady}=require('../src/desktop/browser-components.cjs');
 const root=path.resolve(__dirname,'..'),target=process.platform==='darwin'?'macos-arm64':'windows-x64';
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'papertrail-first-launch-'));
 const brand=require('../src/desktop/brand.cjs');
-const executable=process.env.PAPERTRAIL_TEST_EXECUTABLE||path.join(root,'build/work',process.platform==='darwin'?target:'windows-x64-offline',process.platform==='darwin'?'mac-arm64/'+brand.englishName+'.app/Contents/MacOS/'+brand.englishName:'win-unpacked/'+brand.englishName+'.exe');
+const executable=process.env.PAPERTRAIL_TEST_EXECUTABLE||path.join(root,'build/work',target+'-offline',process.platform==='darwin'?'mac-arm64/'+brand.englishName+'.app/Contents/MacOS/'+brand.englishName:'win-unpacked/'+brand.englishName+'.exe');
 const resources=process.platform==='darwin'?path.resolve(executable,'../../Resources'):path.join(path.dirname(executable),'resources');
 const runtime=path.join(resources,'runtime'),bundled=path.join(runtime,'browsers'),output=path.join(root,'build/test-results');
 fs.mkdirSync(output,{recursive:true});
@@ -16,7 +16,7 @@ const launch=()=>_electron.launch({executablePath:executable,args:[],env,timeout
 let app;
 (async()=>{
  assert.ok(componentsReady(path.join(runtime,'browser-module/playwright-core'),bundled));
- execFileSync(process.platform==='darwin'?path.join(runtime,'node/bin/node'):path.join(runtime,'node/node.exe'),[path.join(root,'scripts/smoke-browsers.cjs')],{env:{...env,PAPERTRAIL_TEST_RUNTIME:runtime},timeout:90000,stdio:'inherit'});
+ execFileSync(executable,[path.join(root,'scripts/smoke-browsers.cjs')],{env:{...env,ELECTRON_RUN_AS_NODE:'1',PAPERTRAIL_TEST_RUNTIME:runtime},timeout:90000,stdio:'inherit'});
  report.checks.push('Bundled Chromium and Firefox launch and render local content');
  app=await launch();let page=await app.firstWindow();
  page.on('pageerror',error=>report.errors.push(error.message));

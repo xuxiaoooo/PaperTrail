@@ -64,7 +64,7 @@ class RefreshScheduleTest(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.scheduler.state()['next_run_at'], '2026-09-30T22:00:00+08:00')
 
-    def test_fixed_schedule_and_enabled_setting_survive_restart(self):
+    def test_custom_schedule_and_enabled_setting_survive_restart(self):
         self.scheduler.save({'enabled': False, 'times': ['10:00', '15:00', '20:00']})
         self.moment = self.moment.replace(hour=10, minute=0)
         self.scheduler = self.create_scheduler()
@@ -72,18 +72,23 @@ class RefreshScheduleTest(unittest.TestCase):
         self.assertFalse(self.scheduler.tick())
         self.scheduler.save({'enabled': True, 'times': ['20:10', '10:10', '15:10']})
         self.moment = self.moment.replace(minute=10)
-        self.assertFalse(self.scheduler.tick())
-        self.assertEqual(self.scheduler.state()['next_run_at'], '2026-09-30T11:00:00+08:00')
-        self.assertEqual(len(self.scheduler.state()['times']), 17)
+        self.assertTrue(self.scheduler.tick())
+        self.assertEqual(self.scheduler.state()['next_run_at'], '2026-09-30T15:10:00+08:00')
+        self.assertEqual(self.scheduler.state()['times'], ['10:10','15:10','20:10'])
 
-    def test_legacy_three_slots_migrate_to_hourly(self):
+    def test_existing_three_slots_remain_custom(self):
         with self.connect() as con:
             con.execute('UPDATE refresh_schedule SET times=?,next_run_at=? WHERE id=1',
                         ('["10:00","15:00","20:00"]', '2026-09-30T15:00:00+08:00'))
         self.scheduler = self.create_scheduler()
         self.scheduler.initialize()
-        self.assertEqual(self.scheduler.state()['next_run_at'], '2026-09-30T10:00:00+08:00')
-        self.assertEqual(len(self.scheduler.state()['times']), 17)
+        self.assertEqual(self.scheduler.state()['next_run_at'], '2026-09-30T15:00:00+08:00')
+        self.assertEqual(self.scheduler.state()['times'], ['10:00','15:00','20:00'])
+
+    def test_time_validation_rejects_duplicates_and_invalid_values(self):
+        for times in ([], ['08:00','08:00'], ['24:00'], ['8:00'], ['12:99'], ['12:00']*49):
+            with self.subTest(times=times), self.assertRaises(ValueError):
+                self.scheduler.save({'enabled':True,'times':times})
 
     def test_partial_failure_is_reported_and_next_slot_remains_scheduled(self):
         self.scheduler.refresh = lambda: {'ok': True, 'checked': 1,

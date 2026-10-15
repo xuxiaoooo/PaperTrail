@@ -3,14 +3,12 @@
 import {mkdir, chmod, writeFile} from 'node:fs/promises';
 import {openReaderContext,closeReaderContext} from './reader_context.mjs';
 import {isScholarOneUrl} from './portal_urls.mjs';
+import {matchesTracked} from './manuscript_identity.mjs';
 
 import {runReader} from './reader_worker.mjs';
 let context, page, cookieHandlersReady=false;
 async function read(input) {
-const key = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-const baseNumber = value => String(value || '').replace(/\.R\d+$/i, '');
-const wanted = row => input.tracked.some(paper => paper.number
-  ? baseNumber(paper.number) === baseNumber(row.number) : key(paper.title_en) === key(row.title_en));
+const wanted = row => input.tracked.some(paper => matchesTracked(paper,row));
 let stage = 'browser';
 let loginMessage = '';
 
@@ -101,9 +99,6 @@ try {
     if (!await next.isVisible() || /disabled/.test(await next.getAttribute('class') || '')) break;
     await next.click();
     }
-    const found = [...collected.values()];
-    if (input.tracked.every(paper => found.some(row => paper.number
-      ? baseNumber(row.number) === baseNumber(paper.number) : key(row.title_en) === key(paper.title_en)))) break;
   }
   process.stdout.write(JSON.stringify({ok: true, rows: [...collected.values()]})+'\n');
 } catch (error) {

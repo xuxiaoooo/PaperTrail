@@ -5,14 +5,12 @@ import {isEditorialManagerUrl} from './portal_urls.mjs';
 import {readEditorialManagerTable,expandEditorialManagerPage} from './editorial_manager_rows.mjs';
 import {ensureEditorialManagerLogin} from './editorial_manager_login.mjs';
 import {saveReaderSession} from './reader_session.mjs';
+import {matchesTracked} from './manuscript_identity.mjs';
 
 import {runReader} from './reader_worker.mjs';
 let context, page, cookieHandlersReady=false;
 async function read(input) {
-const baseNumber = value => String(value || '').replace(/(?:\.R|R)\d+$/i, '');
-const key = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-const wanted = row => input.tracked.some(paper => paper.number
-  ? baseNumber(paper.number) === baseNumber(row.number) : key(paper.title_en) === key(row.title_en));
+const wanted = row => input.tracked.some(paper => matchesTracked(paper,row));
 let stage = 'browser';
 
 try {
@@ -61,13 +59,10 @@ try {
       collected.set(row.number,row);
     }
   };
-  const complete = () => input.tracked.every(paper=>[...collected.values()].some(row=>paper.number
-    ? baseNumber(row.number) === baseNumber(paper.number) : key(row.title_en) === key(paper.title_en)));
   // A restored session can land directly on the freshly loaded author queue.
   stage = 'read';
   await content().locator('#datatable').waitFor({state:'visible',timeout:1200}).catch(error=>{if(error.name!=='TimeoutError')throw error;});
   if(await content().locator('#datatable').isVisible()) await collectRows();
-  if(!complete()) {
   stage = 'author';
   await dismissCookies();
   if (!await content().getByRole('heading', {name:'Author Main Menu', exact:true}).first().isVisible())
@@ -85,10 +80,8 @@ try {
     stage = 'read';
     await expandEditorialManagerPage(content());
     await collectRows(name);
-    if (complete()) break;
     await page.locator('#MainMenu').click();
     await content().getByRole('heading', {name:'Author Main Menu', exact:true}).first().waitFor({state:'visible'});
-  }
   }
   process.stdout.write(JSON.stringify({ok:true, rows:[...collected.values()]})+'\n');
 } catch (error) {

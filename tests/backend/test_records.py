@@ -8,6 +8,14 @@ from unittest.mock import patch
 
 
 class RecordsTest(unittest.TestCase):
+    def test_mdpi_statuses_follow_publisher_meanings(self):
+        normalize = self.app.portal_sync.normalize_status
+        self.assertEqual(normalize('Pending review', 'MDPI SuSy'), 'editor')
+        self.assertEqual(normalize('Under review', 'MDPI SuSy'), 'review')
+        self.assertEqual(normalize('Pending editor decision', 'MDPI SuSy'), 'decision')
+        self.assertEqual(normalize('Pending minor revisions', 'MDPI SuSy'), 'revision')
+        self.assertEqual(normalize('Author proofreading', 'MDPI SuSy'), 'accepted')
+
     def test_tray_overview_contains_all_papers_without_account_or_history_details(self):
         account=self.account('private-account-name')
         self.app.manuscript_save(self.paper(account,'QUICK-01',status='review',raw_status='Under Review'))
@@ -118,7 +126,8 @@ class RecordsTest(unittest.TestCase):
             ('https://www.editorialmanager.com/example/default.aspx', 'orcid', 'Editorial Manager', 'cep_reader.mjs'),
             ('https://www.editorialmanager.com/another', 'elsevier', 'Editorial Manager', 'elsevier_reader.mjs'),
             ('https://submission.wiley.com/journal/EXAMPLE', 'password', 'Wiley Research Exchange', 'wiley_reader.mjs'),
-            ('https://ieee.submission.researchexchange.com/submission/dashboard', 'password', 'IEEE Research Exchange', 'research_exchange_reader.mjs')
+            ('https://ieee.submission.researchexchange.com/submission/dashboard', 'password', 'IEEE Research Exchange', 'research_exchange_reader.mjs'),
+            ('https://susy.mdpi.com/user/manuscripts/status', 'password', 'MDPI SuSy', 'mdpi_reader.mjs')
         ]
         for index, (url, method, platform, reader) in enumerate(cases):
             with self.subTest(url=url, method=method), patch.object(self.app, 'save_password', return_value=True):
@@ -145,7 +154,7 @@ class RecordsTest(unittest.TestCase):
     def test_retired_platform_entries_are_rejected(self):
         for url in ('https://ojs.example.test/index.php/journal/login',
                     'https://css.paperplaza.net/journals/tac/scripts/login.pl'):
-            with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'ScholarOne、Editorial Manager 或 Wiley'):
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, 'ScholarOne、Editorial Manager、Wiley、IEEE 或 MDPI'):
                 self.app.account_save(dict(username='old-platform', password='synthetic-secret',
                     journal_name='Old platform journal', platform='自动识别', login_url=url))
 
@@ -581,7 +590,6 @@ class RecordsTest(unittest.TestCase):
         for i, account in enumerate(accounts):
             expected[account] = [self.app.manuscript_save(self.paper(account, f'PAR-{i}-{j}',
                 title_en=f'Parallel {i} {j}', status='review'))['id'] for j in range(2 if i == 2 else 1)]
-        barrier = threading.Barrier(2, timeout=3)
         guard = threading.Lock()
         active, peak, seen, journal_active = 0, 0, [], {}
         def read(account, journal, tracked, data):
@@ -594,8 +602,6 @@ class RecordsTest(unittest.TestCase):
                 self.assertEqual(journal_active[journal['id']], 1, 'Same journal accounts log in sequentially')
             try:
                 self.assertEqual([p['id'] for p in tracked], expected[account['id']])
-                if account['id'] in accounts[:2]:
-                    barrier.wait()
                 if account['id'] == accounts[0]:
                     raise self.app.portal_sync.PortalError('单个账号读取失败')
                 return [dict(number=p['number'], title_en=p['title_en'], raw_status='Under Review',
@@ -606,7 +612,7 @@ class RecordsTest(unittest.TestCase):
                     journal_active[journal['id']] -= 1
         with patch.object(self.app.portal_sync, 'read_account', side_effect=read):
             result = self.app.refresh({})
-        self.assertEqual(peak, 2)
+        self.assertEqual(peak, 1)
         self.assertCountEqual(seen, accounts)
         self.assertEqual(result['checked'], 6)
         self.assertEqual(result['issues'], [{'account_id': accounts[0], 'message': '单个账号读取失败'}])
@@ -712,6 +718,35 @@ class RecordsTest(unittest.TestCase):
         self.assertEqual(paper['status'],'accepted')
         self.assertEqual(paper['system_submitted_at'],'2026-01-23')
         self.assertEqual(self.app.tracked_matches(account,rows)[0]['status'],'matched')
+
+    def test_revision_number_changes_keep_one_paper_and_event_history(self):
+        account=self.account('round-account')
+        identifier=self.app.manuscript_save(self.paper(account,'MS-2026-12',title_en='Round Tracking',
+            status='submitted',raw_status='Submitted'))['id']
+        reads=[('MS-2026-12-R1','Under Review'),('MS-2026-12_Rev2','Accepted')]
+        for number,status in reads:
+            with patch.object(self.app.portal_sync,'read_account',return_value=[dict(number=number,
+                    title_en='Round Tracking',raw_status=status)]):
+                self.assertEqual(self.app.refresh({})['checked'],1)
+        paper=self.app.state()['manuscripts'][0]
+        self.assertEqual(paper['id'],identifier)
+        self.assertEqual(paper['number'],'MS-2026-12_Rev2')
+        self.assertEqual(json.loads(paper['number_aliases']),['MS-2026-12','MS-2026-12-R1'])
+        self.assertEqual(paper['change_count'],2)
+        with self.assertRaisesRegex(ValueError,'其他修订版本'):
+            self.app.manuscript_save(self.paper(account,'MS-2026-12.R3'))
+        self.assertEqual(self.app.tracked_matches(account,[dict(number='MS-2026-12-R1')])[0]['status'],'not_found')
+
+    def test_unique_title_recovers_renumbered_manuscript(self):
+        account=self.account('renumber-account')
+        identifier=self.app.manuscript_save(self.paper(account,'OLD-001',title_en='Stable Title'))['id']
+        with patch.object(self.app.portal_sync,'read_account',return_value=[dict(number='NEW-927',
+                title_en='Stable Title',raw_status='Under Review')]):
+            self.assertEqual(self.app.refresh({})['checked'],1)
+        paper=self.app.state()['manuscripts'][0]
+        self.assertEqual(paper['id'],identifier)
+        self.assertEqual(paper['number'],'NEW-927')
+        self.assertEqual(json.loads(paper['number_aliases']),['OLD-001'])
 
     def test_reject_resubmit_is_pending_revision_after_migration_and_refreshes(self):
         raw='Reject with Possibility for Resubmission (09-Sep-2026)'

@@ -1,11 +1,25 @@
 """Daily refresh scheduling owned by the local PaperTrail service."""
 import json
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 
 BEIJING = timezone(timedelta(hours=8), 'Asia/Shanghai')
 # Midnight closes the 08:00–24:00 hourly window.
 DEFAULT_TIMES = ['00:00'] + [f'{hour:02d}:00' for hour in range(8, 24)]
+
+
+def validate_times(values):
+    if not isinstance(values, list) or not 1 <= len(values) <= 48:
+        raise ValueError('请设置 1 至 48 个刷新时间点')
+    result = []
+    for value in values:
+        if not isinstance(value, str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', value):
+            raise ValueError('刷新时间请使用 HH:MM 格式')
+        result.append(value)
+    if len(set(result)) != len(result):
+        raise ValueError('刷新时间不能重复')
+    return sorted(result)
 
 
 def next_run_after(moment, times, zone=BEIJING):
@@ -39,9 +53,13 @@ class RefreshSchedule:
                 VALUES(1,1,?,?)''',
                 (json.dumps(DEFAULT_TIMES), next_run_after(self.clock(), DEFAULT_TIMES, self.zone())))
             row = con.execute('SELECT times,enabled FROM refresh_schedule WHERE id=1').fetchone()
-            if json.loads(row['times']) != DEFAULT_TIMES:
+            try:
+                times = validate_times(json.loads(row['times']))
+            except (ValueError, TypeError):
+                times = DEFAULT_TIMES
+            if times != json.loads(row['times']):
                 con.execute('UPDATE refresh_schedule SET times=?,next_run_at=? WHERE id=1',
-                    (json.dumps(DEFAULT_TIMES), next_run_after(self.clock(), DEFAULT_TIMES, self.zone())
+                    (json.dumps(times), next_run_after(self.clock(), times, self.zone())
                      if row['enabled'] else None))
 
     def state(self):
@@ -58,10 +76,11 @@ class RefreshSchedule:
         enabled = body.get('enabled')
         if not isinstance(enabled, bool):
             raise ValueError('请选择是否启用自动刷新')
+        times = validate_times(body.get('times', self.state()['times']))
         with self.connect() as con:
             con.execute('UPDATE refresh_schedule SET enabled=?,times=?,next_run_at=? WHERE id=1',
-                (int(enabled), json.dumps(DEFAULT_TIMES),
-                 next_run_after(self.clock(), DEFAULT_TIMES, self.zone()) if enabled else None))
+                (int(enabled), json.dumps(times),
+                 next_run_after(self.clock(), times, self.zone()) if enabled else None))
         return {'ok': True, 'message': '自动刷新设置已保存'}
 
     def recalculate(self):

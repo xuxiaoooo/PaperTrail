@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {isScholarOneUrl,isEditorialManagerUrl,isWileyUrl,isIeeePortalUrl} from '../../src/readers/portal_urls.mjs';
+import {isScholarOneUrl,isEditorialManagerUrl,isWileyUrl,isIeeePortalUrl,isMdpiSusyUrl} from '../../src/readers/portal_urls.mjs';
 
 for (const url of ['https://mc.manuscriptcentral.com/taes',
   'https://mc03.manuscriptcentral.com/scis/', 'https://mc12.manuscriptcentral.com/future-journal']) {
@@ -35,3 +35,6 @@ assert.equal(isIeeePortalUrl('https://ieee.submission.researchexchange.com/submi
 assert.equal(isIeeePortalUrl('https://ieee.submission.researchexchange.com.evil.test/submission/dashboard'), false);
 assert.equal(isIeeePortalUrl('http://ieee.submission.researchexchange.com/submission/dashboard'), false);
 console.log('IEEE Research Exchange portal recognition passed');
+assert.equal(isMdpiSusyUrl('https://susy.mdpi.com/user/manuscripts/status'),true);
+assert.equal(isMdpiSusyUrl('https://susy.mdpi.com/user/manuscripts/upload'),false);
+assert.equal(isMdpiSusyUrl('https://susy.mdpi.com.evil.test/user/manuscripts/status'),false);

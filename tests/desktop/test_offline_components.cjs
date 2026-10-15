@@ -9,15 +9,15 @@ const options={runtime,dataPath,packaged:true,platform:'win32'};
 (async()=>{
  assert.equal(componentCacheDirectory(options),path.join(dataPath,'components'),'Online installs keep the existing user cache');
  const directories=componentDirectories(moduleRoot,bundled,'win32');
- assert.equal(directories.length,5,'Include the Windows runtime helper as well as both browser engines');
+ assert.equal(directories.length,3,'Include the Windows runtime helper as well as both browser engines');
  for(const directory of directories){fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,'INSTALLATION_COMPLETE'),'');}
  assert.equal(componentCacheDirectory(options),bundled,'Offline installs use bundled components with an empty user cache');
  assert.equal((await downloadComponents({node:path.join(root,'no-downloader'),moduleRoot,cache:bundled})).downloaded,false,'Complete bundled components do not launch a downloader');
  assert.equal(componentCacheDirectory({...options,override:'explicit-test-cache'}),'explicit-test-cache');
  assert.equal(componentCacheDirectory({...options,packaged:false}),bundled);
- assert.equal(componentDirectories(moduleRoot,bundled,'darwin').length,4);
+ assert.equal(componentDirectories(moduleRoot,bundled,'darwin').length,2);
  fs.rmSync(directories.find(directory=>path.basename(directory).startsWith('winldd-')),{recursive:true});
- assert.equal(componentCacheDirectory({...options,platform:'darwin'}),bundled,'Mac uses its four bundled components without the Windows helper');
+ assert.equal(componentCacheDirectory({...options,platform:'darwin'}),bundled,'Mac uses its two bundled browsers without the Windows helper');
  assert.equal(componentCacheDirectory(options),path.join(dataPath,'components'),'Windows still requires its platform helper');
  console.log('Mac and Windows bundled component selection and completeness passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>fs.rmSync(root,{recursive:true,force:true}));

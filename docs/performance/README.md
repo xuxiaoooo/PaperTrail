@@ -4,11 +4,11 @@
 
 - Main-window close destroys the BrowserWindow and its renderer. / 关闭主窗口会销毁窗口及其页面进程。
 - The menu bar popover is created on demand and destroyed on blur. / 菜单栏弹窗按需创建，失焦后销毁。
-- Submission reading uses at most two simultaneous account reads; workers close after 30 seconds of inactivity. / 最多同时读取两个账号，读取工作进程空闲 30 秒后关闭。
+- Submission reading handles one account at a time and closes its browser immediately after the read. / 每次只读取一个账号，并在读取完成后立即关闭浏览器。
 
 These behaviors are checked by the desktop smoke checks and reader-worker tests. / 桌面功能检查与读取工作进程测试验证以上行为。
 
-## Current source-development sample / 当前源码开发实例样本
+## Earlier 1.1 source-development sample / 旧版 1.1 源码开发样本
 
 Measured on macOS 27.0.1, arm64, with two synthetic manuscripts and no active journal read. The screenshot generator samples the app and all child processes using `ps` after opening the interface and two seconds after closing it.
 

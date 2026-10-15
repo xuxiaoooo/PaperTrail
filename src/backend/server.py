@@ -14,13 +14,13 @@ import sys
 import threading
 import unicodedata
 import portal_sync
+from manuscript_identity import number_key, series, round_number, title_key
 import credential_store
 from platform_runtime import user_data_dir, private_mode, ui_dir
 from profile import Profile
 import backup
 from browser_runtime import close_browsers, close_profile
 from refresh_schedule import RefreshSchedule
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import monotonic
 from datetime import date, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -50,7 +50,7 @@ def connect():
 
 
 PROFILE = Profile(connect)
-SCHEDULE = RefreshSchedule(connect, lambda: refresh({}, lock_held=True), SYNC_LOCK, zone=PROFILE.zone)
+SCHEDULE = RefreshSchedule(connect, lambda: refresh({'scheduled': True}, lock_held=True), SYNC_LOCK, zone=PROFILE.zone)
 
 
 def initialize():
@@ -114,6 +114,8 @@ def initialize():
         for column in ('system_submitted_at', 'first_author'):
             if column not in columns:
                 con.execute(f"ALTER TABLE manuscripts ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+        if 'number_aliases' not in columns:
+            con.execute("ALTER TABLE manuscripts ADD COLUMN number_aliases TEXT NOT NULL DEFAULT '[]'")
         # Reclassify existing resubmission decisions without changing observation times.
         for row in con.execute("SELECT id,raw_status FROM manuscripts WHERE status='rejected'").fetchall():
             if portal_sync.is_reject_resubmit(row['raw_status']):
@@ -199,7 +201,7 @@ def state():
                 a['sync_error'] for a in result['accounts'] if a['id'] in used_accounts):
             complete_through = min(p['last_success'] for p in papers)
             result['last_checked_at'] = max(result['last_checked_at'] or '', complete_through)
-    result.update(token=TOKEN, keychain_ready=credential_store.ready(), version='1.1', profile=PROFILE.state(),
+    result.update(token=TOKEN, keychain_ready=credential_store.ready(), version=os.environ.get('PAPERTRAIL_VERSION','1.2'), profile=PROFILE.state(),
                   auto_refresh=SCHEDULE.state(), sync_in_progress=SYNC_LOCK.locked())
     return result
 
@@ -263,7 +265,7 @@ def account_save(body, account_id=None):
             raise ValueError('请选择有效登录方式')
         journal = con.execute('SELECT * FROM journals WHERE id=?', (journal_id,)).fetchone()
         if not portal_sync.supported(journal['login_url'], login_method, journal['platform']):
-            raise ValueError('请填写 ScholarOne、Editorial Manager 或 Wiley 的期刊投稿入口，也支持 IEEE Research Exchange 投稿门户')
+            raise ValueError('请填写 ScholarOne、Editorial Manager、Wiley、IEEE 或 MDPI 的期刊投稿入口')
         if login_method == 'orcid' and not portal_sync.is_editorial_manager(journal['login_url']):
             raise ValueError('ORCID 登录需要填写提供该登录方式的 Editorial Manager 投稿入口')
         if login_method == 'elsevier' and not portal_sync.is_editorial_manager(journal['login_url']):
@@ -313,6 +315,7 @@ def journal_save(body, journal_id):
             if login_url != old['login_url']:
                 con.execute("UPDATE account_sync SET error='',last_success_at=NULL WHERE account_id IN (SELECT id FROM accounts WHERE journal_id=?)", (journal_id,))
     finally:
+        close_browsers()
         SYNC_LOCK.release()
     return {'ok': True, 'id': journal_id, 'message': '期刊名称已保存'}
 
@@ -385,6 +388,7 @@ def connect_account(body):
         provider = 'Elsevier' if account['login_method']=='elsevier' else 'ORCID' if account['login_method']=='orcid' else journal['platform']
         return {'ok':True, 'message':provider+' 已连接，可以添加论文并后台读取状态'}
     finally:
+        close_browsers()
         SYNC_LOCK.release()
 
 
@@ -421,6 +425,11 @@ def manuscript_save(body, manuscript_id=None):
                                 (account_id, number)).fetchone()
         if duplicate and duplicate['id'] != manuscript_id:
             raise ValueError('此账号下已记录该稿件编号，请编辑已有稿件')
+        if number:
+            for existing in con.execute('SELECT id,number,number_aliases FROM manuscripts WHERE account_id=?', (account_id,)):
+                if existing['id'] != manuscript_id and any(series(value) == series(number)
+                    for value in [existing['number'], *json.loads(existing['number_aliases'])] if value):
+                    raise ValueError('此账号下已跟踪该稿件的其他修订版本，请编辑已有稿件')
         identifier = manuscript_id or str(uuid4())
         old = None
         if manuscript_id:
@@ -445,11 +454,14 @@ def manuscript_save(body, manuscript_id=None):
             if 'notes' not in body:
                 notes = old['notes']
             title = title_zh or title_en or number
+            aliases = json.loads(old['number_aliases'])
+            if old['number'] and number_key(old['number']) != number_key(number):
+                aliases = list(dict.fromkeys([*aliases, old['number']]))
             con.execute('''UPDATE manuscripts SET account_id=?,title=?,number=?,status=?,raw_status=?,
                         submitted_at=?,status_date=?,due_date=?,round=?,notes=?,recorded_at=?,source='manual'
-                        ,title_en=?,title_zh=?,corresponding_author=?,first_author=?
+                        ,title_en=?,title_zh=?,corresponding_author=?,first_author=?,number_aliases=?
                         WHERE id=?''', (account_id,title,number,status,raw_status,submitted,status_date,
-                                        due_date,revision,notes,stamp,title_en,title_zh,corresponding_author,first_author,identifier))
+                                        due_date,revision,notes,stamp,title_en,title_zh,corresponding_author,first_author,json.dumps(aliases),identifier))
         else:
             title = title_zh or title_en or number
             con.execute('''INSERT INTO manuscripts
@@ -482,33 +494,39 @@ def manuscript_delete(identifier):
 
 def tracked_matches(account_id, portal_rows):
     """Resolve only manuscripts the user explicitly added; never import a whole account."""
-    def title_key(value):
-        return ' '.join(unicodedata.normalize('NFKC', value or '').split()).casefold()
-
-    def base_number(value):
-        return re.sub(r'(?:\.R|R)\d+$', '', value or '', flags=re.I)
-
-    def revision_number(row):
-        revision = re.search(r'(?:\.R|R)(\d+)$', row.get('number', ''), re.I)
-        return int(revision[1]) if revision else 0
-
     with connect() as con:
         tracked = [dict(row) for row in con.execute('SELECT * FROM manuscripts WHERE account_id=?', (account_id,))]
     results = []
+    title_counts = {}
+    for paper in tracked:
+        key = title_key(paper['title_en'])
+        if key:
+            title_counts[key] = title_counts.get(key, 0) + 1
     for paper in tracked:
         if paper['number']:
-            candidates = [row for row in portal_rows if base_number(row.get('number')) == base_number(paper['number'])]
+            known = [paper['number'], *json.loads(paper['number_aliases'])]
+            candidates = [row for row in portal_rows if any(series(row.get('number')) == series(value)
+                          for value in known if value) and
+                          (series(row.get('number')) != series(paper['number']) or
+                           round_number(row.get('number')) >= round_number(paper['number']))]
             matched_by = 'number'
+            if not candidates and title_counts.get(title_key(paper['title_en'])) == 1:
+                other_series = {series(other['number']) for other in tracked if other['id'] != paper['id'] and other['number']}
+                candidates = [row for row in portal_rows if title_key(row.get('title_en') or row.get('title')) == title_key(paper['title_en'])
+                              and series(row.get('number')) not in other_series
+                              and (series(row.get('number')) != series(paper['number']) or
+                                   round_number(row.get('number')) >= round_number(paper['number']))]
+                matched_by = 'title'
         else:
             key = title_key(paper['title_en'])
-            candidates = [row for row in portal_rows if key and title_key(row.get('title_en') or row.get('title')) == key]
+            candidates = [row for row in portal_rows if key and title_counts.get(key) == 1 and title_key(row.get('title_en') or row.get('title')) == key]
             matched_by = 'title'
         # ScholarOne displays earlier decisions alongside the explicitly numbered revisions.
-        if len(candidates) > 1 and len({base_number(row.get('number')) for row in candidates}) == 1:
-            ordered = sorted(candidates, key=revision_number)
-            if len({revision_number(row) for row in ordered}) == len(ordered):
+        if len(candidates) > 1 and len({series(row.get('number')) for row in candidates}) == 1:
+            ordered = sorted(candidates, key=lambda row: round_number(row.get('number')))
+            if len({round_number(row.get('number')) for row in ordered}) == len(ordered):
                 latest = dict(ordered[-1])
-                if revision_number(ordered[0]) == 0:
+                if round_number(ordered[0].get('number')) == 0:
                     latest['submitted_at'] = ordered[0].get('submitted_at', '')
                 candidates = [latest]
         results.append({'manuscript_id': paper['id'], 'matched_by': matched_by,
@@ -553,10 +571,13 @@ def refresh_account(account, journal, tracked, interactive=False):
                 raw = row['raw_status']
                 status = portal_sync.normalize_status(raw, journal['platform'])
                 changed = old['status'] != status or old['raw_status'] != raw
+                aliases = json.loads(old['number_aliases'])
+                if old['number'] and number_key(old['number']) != number_key(row['number']):
+                    aliases = list(dict.fromkeys([*aliases, old['number']]))
                 con.execute('''UPDATE manuscripts SET number=?,status=?,raw_status=?,system_submitted_at=?,
-                    last_success=?,source='website',recorded_at=?,status_date=? WHERE id=?''',
+                    last_success=?,source='website',recorded_at=?,status_date=?,number_aliases=? WHERE id=?''',
                     (row['number'], status, raw, submitted or old['system_submitted_at'], stamp, stamp,
-                     status_date or ('' if changed else old['status_date']), paper_id))
+                     status_date or ('' if changed else old['status_date']), json.dumps(aliases), paper_id))
                 # A number-only entry starts at "待确认"; its first website read is the baseline.
                 if changed and not (old['status'] == 'unknown' and old['last_success'] is None
                                     and old['source'] == 'manual'):
@@ -579,9 +600,13 @@ def refresh_account(account, journal, tracked, interactive=False):
 
 
 def refresh_journal_accounts(jobs, interactive=False):
-    # Keep the same portal's login sequence while other journals run concurrently.
-    return {account['id']: refresh_account(account, journal, tracked, interactive)
-            for account, journal, tracked in jobs}
+    results = {}
+    for account, journal, tracked in jobs:
+        try:
+            results[account['id']] = refresh_account(account, journal, tracked, interactive)
+        finally:
+            close_browsers()
+    return results
 
 
 def refresh(body, lock_held=False):
@@ -606,17 +631,23 @@ def refresh(body, lock_held=False):
                     'message': '当前没有需要刷新的稿件' if papers else '请先添加要跟踪的稿件'}
         checked_ids, issues, updated = set(), [], 0
         account_ids = list(dict.fromkeys(p['account_id'] for p in selected))
+        if body.get('scheduled') is True:
+            with connect() as con:
+                pending = {row['account_id']: row['error'] for row in con.execute(
+                    "SELECT account_id,error FROM account_sync WHERE error LIKE '网站要求人工验证%' OR error LIKE 'IEEE 登录页面未能载入%'")}
+            for account_id in account_ids:
+                if account_id in pending:
+                    issues.append({'account_id': account_id, 'message': pending[account_id]})
+            account_ids = [account_id for account_id in account_ids if account_id not in pending]
         groups = {}
         for account_id in account_ids:
             account = accounts[account_id]
             tracked = [p for p in selected if p['account_id'] == account_id]
             groups.setdefault(account['journal_id'], []).append((account, journals[account['journal_id']], tracked))
         outcomes = {}
-        # Each account owns a separate browser profile; the outer lock prevents overlapping runs.
-        with ThreadPoolExecutor(max_workers=min(2,len(groups))) as pool:
-            futures = [pool.submit(refresh_journal_accounts, jobs, interactive) for jobs in groups.values()]
-            for future in as_completed(futures):
-                outcomes.update(future.result())
+        # One account at a time bounds the browser memory peak.
+        for jobs in groups.values():
+            outcomes.update(refresh_journal_accounts(jobs, interactive))
         for account_id in account_ids:
             outcome = outcomes[account_id]
             checked_ids.update(outcome['checked_ids'])
@@ -636,6 +667,7 @@ def refresh(body, lock_held=False):
         return {'ok': True, 'checked': len(checked_ids), 'updated': updated, 'issues': issues,
                 'message': message, 'duration_seconds': seconds}
     finally:
+        close_browsers()
         if not lock_held:
             SYNC_LOCK.release()
 

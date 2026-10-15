@@ -41,3 +41,12 @@ export function isIeeePortalUrl(value) {
     return false;
   }
 }
+
+export function isMdpiSusyUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === 'https://susy.mdpi.com' && !url.username && !url.password &&
+      ['', '/', '/user/myprofile', '/user/myprofile/', '/user/manuscripts', '/user/manuscripts/',
+        '/user/manuscripts/status', '/user/manuscripts/status/'].includes(url.pathname);
+  } catch { return false; }
+}

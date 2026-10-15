@@ -4,11 +4,10 @@ import {openReaderContext, closeReaderContext} from './reader_context.mjs';
 import {isWileyUrl} from './portal_urls.mjs';
 import {readWileyPage} from './wiley_rows.mjs';
 import {runReader} from './reader_worker.mjs';
+import {matchesTracked} from './manuscript_identity.mjs';
 
 let context, page;
-const baseNumber = value => String(value || '').replace(/(?:\.R|R)\d+$/i, '');
-const tracked = (input, row) => input.tracked.some(paper =>
-  paper.number && baseNumber(paper.number) === baseNumber(row.number));
+const tracked = (input, row) => input.tracked.some(paper => matchesTracked(paper,row));
 
 async function read(input) {
   let stage = 'browser';
@@ -73,8 +72,6 @@ async function read(input) {
     for (let current = 1; current <= 100; current++) {
       for (const row of (await readWileyPage(page)).filter(row => tracked(input, row)))
         collected.set(row.number, row);
-      if (input.tracked.every(paper => [...collected.values()].some(row =>
-        baseNumber(row.number) === baseNumber(paper.number)))) break;
       const next = page.locator(`[data-testid="pagination-item-${current + 1}"]`).first();
       if (!await next.isVisible().catch(() => false) || await next.isDisabled().catch(() => true)) break;
       const firstCard = await cards.first().getAttribute('data-testid').catch(() => '');

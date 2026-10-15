@@ -39,11 +39,19 @@ def is_ieee_portal(login_url):
             and bool(re.fullmatch(r'/submission(?:/dashboard(?:/[A-Za-z0-9_-]+)?)?/?', url.path)))
 
 
+def is_mdpi_susy(login_url):
+    url = urlsplit(login_url)
+    return (url.scheme == 'https' and not url.username and not url.password and not url.port
+            and url.hostname == 'susy.mdpi.com' and
+            url.path.rstrip('/') in ('', '/user/myprofile', '/user/manuscripts', '/user/manuscripts/status'))
+
+
 def platform_name(login_url):
     for check, name in ((is_scholarone, 'ScholarOne'),
                         (is_editorial_manager, 'Editorial Manager'),
                         (is_wiley, 'Wiley Research Exchange'),
-                        (is_ieee_portal, 'IEEE Research Exchange')):
+                        (is_ieee_portal, 'IEEE Research Exchange'),
+                        (is_mdpi_susy, 'MDPI SuSy')):
         if check(login_url):
             return name
     return ''
@@ -53,7 +61,7 @@ def supported(login_url, login_method='password', platform=''):
     if is_editorial_manager(login_url):
         return login_method in ('password', 'orcid', 'elsevier')
     return login_method == 'password' and (is_scholarone(login_url) or is_wiley(login_url)
-                                           or is_ieee_portal(login_url))
+                                           or is_ieee_portal(login_url) or is_mdpi_susy(login_url))
 
 
 def read_account(account, journal, tracked, data_dir, interactive=False, connect_only=False):
@@ -67,6 +75,7 @@ def read_account(account, journal, tracked, data_dir, interactive=False, connect
     firefox_scholarone = is_scholarone(journal['login_url'])
     wiley = is_wiley(journal['login_url'])
     ieee = is_ieee_portal(journal['login_url'])
+    mdpi = is_mdpi_susy(journal['login_url'])
     if not sso and not account['has_password']:
         raise PortalError('请先为此账号保存登录密码')
     node = node_path()
@@ -97,7 +106,7 @@ def read_account(account, journal, tracked, data_dir, interactive=False, connect
     }
     password = ''
     try:
-        reader = ('research_exchange_reader.mjs' if ieee else 'wiley_reader.mjs' if wiley else 'elsevier_reader.mjs' if elsevier
+        reader = ('mdpi_reader.mjs' if mdpi else 'research_exchange_reader.mjs' if ieee else 'wiley_reader.mjs' if wiley else 'elsevier_reader.mjs' if elsevier
                   else 'cep_reader.mjs' if orcid else 'editorial_manager_reader.mjs'
                   if is_editorial_manager(journal['login_url']) else 'scis_reader.mjs')
         reader_path = runtime_reader_path(reader)
@@ -153,6 +162,14 @@ def is_reject_resubmit(raw):
 
 def normalize_status(raw, platform=''):
     value = raw.casefold()
+    if platform == 'MDPI SuSy':
+        if value.strip() == 'pending review':
+            return 'editor'
+        if value.strip() in ('pending decision', 'pending editor decision'):
+            return 'decision'
+        if any(term in value for term in ('author proofreading', 'english correction done',
+                                           'pending conversion', 'pdf2xml')):
+            return 'accepted'
     if value.strip() in ('in screening', 'screening'):
         return 'editor'
     if value.strip() in ('in revision', 'updates requested'):

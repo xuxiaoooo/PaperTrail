@@ -13,7 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= path.join(root, 'build/runtime',
   process.platform === 'darwin' ? 'macos-arm64' : 'windows-x64', 'browsers');
 const {chromium} = await import('playwright-core');
-const browser = await chromium.launch({headless:true});
+const browser = await chromium.launch({headless:true,channel:'chromium'});
 try {
   const page = await browser.newPage();
   await page.setContent(`<section data-testid="article-card-123">

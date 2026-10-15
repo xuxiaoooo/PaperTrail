@@ -4,7 +4,9 @@ const brand=require('../src/desktop/brand.cjs');
 const {componentsReady}=require('../src/desktop/browser-components.cjs');
 const targets={
  'macos-arm64':path.join(root,'build/work/macos-arm64/mac-arm64',brand.englishName+'.app/Contents/Resources'),
- 'windows-x64':path.join(root,'build/work/windows-x64-offline/win-unpacked/resources')
+ 'macos-arm64-offline':path.join(root,'build/work/macos-arm64-offline/mac-arm64',brand.englishName+'.app/Contents/Resources'),
+ 'windows-x64':path.join(root,'build/work/windows-x64/win-unpacked/resources'),
+ 'windows-x64-offline':path.join(root,'build/work/windows-x64-offline/win-unpacked/resources')
 };
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(entry=>{
  const file=path.join(dir,entry.name);return entry.isDirectory()?walk(file):[file];
@@ -16,21 +18,26 @@ for(const [target,resources] of Object.entries(targets)){
  const files=walk(resources),relative=files.map(file=>path.relative(resources,file));
  const forbidden=relative.filter(file=>/(^|[/\\])(papertrail\.sqlite3|browser-profiles|credentials|desktop-settings\.json|server\.log|\.links)([/\\]|$)/.test(file)||/session-state\.json$/.test(file));
  assert.deepEqual(forbidden,[],'Application must not include private runtime data');
- assert.ok(componentsReady(path.join(resources,'runtime/browser-module/playwright-core'),path.join(resources,'runtime/browsers'),target==='windows-x64'?'win32':'darwin'),'Offline package must contain every matched browser component');
+ const offline=target.endsWith('-offline');
+ if(offline)assert.ok(componentsReady(path.join(resources,'runtime/browser-module/playwright-core'),path.join(resources,'runtime/browsers'),target.startsWith('windows')?'win32':'darwin'),'Offline package must contain every matched browser component');
+ else assert.ok(!fs.existsSync(path.join(resources,'runtime/browsers')),'Slim package should download browsers into the user cache');
  assert.ok(fs.existsSync(path.join(resources,'src/desktop/install-components.cjs')),'Component installer required');
  assert.ok(fs.existsSync(path.join(resources,'src/desktop/browser-components.cjs')),'Shared component manager required');
+ assert.ok(fs.existsSync(path.join(resources,'src/desktop/apply-update.cjs')),'Update installer required');
  assert.ok(fs.existsSync(path.join(resources,'src/readers/browser_launch.mjs')),'Scoped Firefox launcher required');
- if(target==='macos-arm64'){
+ if(target.startsWith('macos')&&offline){
   const metadata=JSON.parse(fs.readFileSync(path.join(resources,'runtime/browser-module/playwright-core/browsers.json')));
   const revision=metadata.browsers.find(browser=>browser.name==='firefox').revision;
   const ini=fs.readFileSync(path.join(resources,'runtime/browsers/firefox-'+revision+'/firefox/Nightly.app/Contents/Resources/browser/papertrail.ini'),'utf8');
   assert.ok(ini.includes('Name=PaperTrail'),'Firefox must own its app registry');
  }
- for(const file of ['src/backend/server.py','src/backend/backup.py','src/ui/app.js','src/ui/mark.svg','src/ui/tray.html','src/ui/tray.js','src/ui/tray.css','assets/icon.png','assets/trayTemplate.png','assets/trayTemplate@2x.png','src/readers/scis_reader.mjs','src/readers/editorial_manager_reader.mjs','src/readers/elsevier_reader.mjs','src/readers/wiley_reader.mjs','src/readers/research_exchange_reader.mjs','runtime/browser-module/playwright-core/index.mjs','runtime/runtime-manifest.json','app.asar'])assert.ok(fs.existsSync(path.join(resources,file)),file);
+ for(const file of ['src/backend/server.py','src/backend/backup.py','src/backend/manuscript_identity.py','src/ui/app.js','src/ui/mark.svg','src/ui/tray.html','src/ui/tray.js','src/ui/tray.css','assets/icon.png','assets/trayTemplate.png','assets/trayTemplate@2x.png','src/readers/scis_reader.mjs','src/readers/editorial_manager_reader.mjs','src/readers/elsevier_reader.mjs','src/readers/wiley_reader.mjs','src/readers/research_exchange_reader.mjs','src/readers/mdpi_reader.mjs','runtime/browser-module/playwright-core/index.mjs','runtime/runtime-manifest.json','app.asar'])assert.ok(fs.existsSync(path.join(resources,file)),file);
+ assert.ok(!fs.existsSync(path.join(resources,'runtime/node')),'Separate Node runtime should not be bundled');
+ assert.ok(!relative.some(file=>/runtime[/\\]browsers[/\\](?:chromium_headless_shell|ffmpeg)-/.test(file)),'Unused browser components should not be bundled');
  const manifest=JSON.parse(fs.readFileSync(path.join(resources,'runtime/runtime-manifest.json')));
  assert.equal(manifest.target,target.replace(/-offline$/,''));
  if(target.startsWith('windows-x64')){
-  for(const executable of [path.join(resources,'runtime/python/python.exe'),path.join(resources,'runtime/node/node.exe'),path.join(resources,'../'+brand.englishName+'.exe')]){
+  for(const executable of [path.join(resources,'runtime/python/python.exe'),path.join(resources,'../'+brand.englishName+'.exe')]){
    const fd=fs.openSync(executable,'r'),header=Buffer.alloc(4096);fs.readSync(fd,header,0,header.length,0);fs.closeSync(fd);
    assert.equal(header.toString('ascii',0,2),'MZ');const pe=header.readUInt32LE(0x3c);assert.equal(header.readUInt16LE(pe+4),0x8664,'Windows executable must be x64');
   }
@@ -39,7 +46,7 @@ for(const [target,resources] of Object.entries(targets)){
  const contents=asar.listPackage(path.join(resources,'app.asar')).map(name=>name.replaceAll('\\','/'));
  assert.ok(contents.includes('/src/desktop/main.cjs'));
  assert.ok(!contents.some(name=>name.includes('tests/')||name.includes('browser-profiles')));
- reports.push({target,ok:true,resourceFiles:files.length,privateRuntimeDataIncluded:false,runtime:manifest});
+ reports.push({target,offline,ok:true,resourceFiles:files.length,privateRuntimeDataIncluded:false,runtime:manifest});
 }
 assert.ok(reports.length>0,'No packaged applications found');
 fs.mkdirSync(path.join(root,'build/test-results'),{recursive:true});

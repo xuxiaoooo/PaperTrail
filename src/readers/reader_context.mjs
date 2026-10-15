@@ -10,7 +10,8 @@ export async function openReaderContext(input,options) {
   const module=await import(pathToFileURL(input.browser_module).href);
   const type=module[input.browser_engine==='firefox'?'firefox':'chromium'];
   const cookies=await readerCookies(input);
-  const context=await type.launchPersistentContext(input.profile_dir,browserLaunchOptions(type,options));
+  const launch=input.browser_engine==='firefox'?options:{...options,channel:'chromium'};
+  const context=await type.launchPersistentContext(input.profile_dir,browserLaunchOptions(type,launch));
   if(input.reset_session) {
     await context.clearCookies();
     await context.addInitScript(()=>{sessionStorage.clear();localStorage.clear();});

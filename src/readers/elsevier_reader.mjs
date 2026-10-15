@@ -4,15 +4,13 @@ import {pathToFileURL} from 'node:url';
 import {advanceElsevierLogin} from './elsevier_login.mjs';
 import {isEditorialManagerUrl} from './portal_urls.mjs';
 import {readEditorialManagerTable,expandEditorialManagerPage} from './editorial_manager_rows.mjs';
+import {matchesTracked} from './manuscript_identity.mjs';
 
 let requestText = '';
 for await (const chunk of process.stdin) requestText += chunk;
 const input = JSON.parse(requestText);
 requestText = '';
-const key = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-const baseNumber = value => String(value || '').replace(/(?:\.R|R)\d+$/i, '');
-const wanted = row => input.tracked.some(paper => paper.number
-  ? baseNumber(paper.number) === baseNumber(row.number) : key(paper.title_en) === key(row.title_en));
+const wanted = row => input.tracked.some(paper => matchesTracked(paper,row));
 let context, page, stage = 'browser';
 
 try {
@@ -85,8 +83,6 @@ try {
         if(!row.number || !row.title_en || !row.raw_status) throw new Error('unrecognized_table');
         collected.set(row.number,row);
       }
-      if(input.tracked.every(paper=>[...collected.values()].some(row=>paper.number
-        ? baseNumber(paper.number) === baseNumber(row.number) : key(row.title_en) === key(paper.title_en)))) break;
       await page.locator('#MainMenu').click();
       await content().getByRole('heading',{name:'Author Main Menu',exact:true}).first().waitFor({state:'visible'});
     }

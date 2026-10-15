@@ -21,7 +21,7 @@ jobs:
             target: windows-x64
             command: win
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +37,7 @@ jobs:
       - run: node scripts/smoke-browsers.cjs
       - run: node scripts/smoke-desktop.cjs
       - run: npm run package:${{ matrix.command }}
+      - run: npm run package:${{ matrix.command }}:offline
       - run: npm run verify:package
       - run: npm run smoke:package
       - run: node scripts/smoke-first-launch.cjs
@@ -50,4 +51,7 @@ jobs:
           path: |
             release/**/*.dmg
             release/**/*.exe
+            release/SHA256SUMS.txt
+            release/release-manifest.json
+            release/updates.json
           if-no-files-found: error

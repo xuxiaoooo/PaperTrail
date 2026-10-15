@@ -4,6 +4,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const labels = {submitted:'已投稿',editor:'编辑处理中',review:'审稿中',decision:'等待决定',revision:'待返修',accepted:'已录用',rejected:'已拒稿',withdrawn:'已撤稿',unknown:'待确认'};
 const zones = ['Asia/Shanghai','Asia/Hong_Kong','Asia/Tokyo','Asia/Singapore','Europe/London','Europe/Berlin','America/New_York','America/Los_Angeles','UTC'];
 let live = {journals:[],accounts:[],manuscripts:[],events:[]}, view = 'papers', search = '', busy = false, verifying = '', desktopInfo = null, toastTimer;
+const openLogIds = new Set();
 const accountFor = paper => live.accounts.find(a => a.id === paper?.account_id);
 const journalFor = account => live.journals.find(j => j.id === account?.journal_id);
 const paperFor = id => live.manuscripts.find(p => p.id === id);
@@ -41,7 +42,7 @@ function papersView(){
       <div class="paper-change">${paper.last_changed_at?`变化 ${esc(dateText(paper.last_changed_at))} · ${paper.change_count} 次`:'本地尚无变化'}</div></article>`).join('')}
     </section>`:`<div class="empty"><div class="empty-symbol">${icon('plus')}</div><h2>${live.manuscripts.length?'没有匹配的稿件':'还没有稿件'}</h2><p>${live.accounts.length?'添加稿件号，开始跟踪进度。':'添加期刊账号，开始跟踪进度。'}</p>
     <button class="button primary" data-action="${live.accounts.length?'add-paper':'add-account'}">${live.accounts.length?'添加稿件':'添加期刊账号'}</button></div>`}
-    <footer class="sync-footer"><span>${live.last_checked_at?'更新 '+esc(dateText(live.last_checked_at)):'尚未刷新'}</span><span title="每天早上 8 点至次日零点每小时更新">08:00–24:00 / 每小时</span></footer>`;
+    <footer class="sync-footer"><span>${live.last_checked_at?'更新 '+esc(dateText(live.last_checked_at)):'尚未刷新'}</span><span>${live.auto_refresh?.enabled?`每天 ${live.auto_refresh.times.length} 个时间点`:'自动刷新已关闭'}</span></footer>`;
 }
 function accountsView(){
   return `<header class="page-head"><div><h1>期刊账号</h1><p>每个账号单独登录和保存会话</p></div><button class="button primary" data-action="add-account">添加期刊账号</button></header>
@@ -57,16 +58,17 @@ function accountsView(){
     }).join('')}</div>${live.journals.length?'':'<div class="empty"><h2>还没有期刊</h2><p>添加投稿入口和账号即可开始。</p></div>'}`;
 }
 function logView(){
-  const changes=live.events.filter(e=>e.old_status!==null).sort((a,b)=>b.happened_at.localeCompare(a.happened_at));
+  const groups=live.manuscripts.map(paper=>({paper,changes:changesFor(paper.id)})).filter(group=>group.changes.length)
+    .sort((a,b)=>b.changes[0].happened_at.localeCompare(a.changes[0].happened_at));
   return `<header class="page-head"><div><h1>本地变化日志</h1><p>从添加稿件后开始记录，不追溯网站以前的变化</p></div></header>
-    <section class="panel">${changes.length?changes.map(e=>{
-      const paper=paperFor(e.manuscript_id),journal=journalFor(accountFor(paper));
-      return `<div class="log-line"><time>${esc(dateText(e.happened_at))}</time><div><strong>${esc(journal?.name||'未知期刊')} · ${esc(paper?.number||'待识别')}</strong>
-      <p>${esc(labels[e.old_status]||e.old_status)} → ${esc(e.raw_status||labels[e.new_status]||e.new_status)}</p></div></div>`;
+    <section class="panel">${groups.length?groups.map(({paper,changes})=>{
+      const journal=journalFor(accountFor(paper));
+      return `<details class="log-group" data-paper-id="${esc(paper.id)}" ${openLogIds.has(paper.id)?'open':''}><summary><span>${esc(journal?.name||'未知期刊')} · ${esc(paper.number||'待识别')}</span><small>${changes.length} 次变化 · ${esc(dateText(changes[0].happened_at))}</small></summary>
+        ${changes.map(e=>`<div class="log-line"><time>${esc(dateText(e.happened_at))}</time><p>${esc(labels[e.old_status]||e.old_status)} → ${esc(e.raw_status||labels[e.new_status]||e.new_status)}</p></div>`).join('')}</details>`;
     }).join(''):'<div class="empty"><h2>尚无状态变化</h2><p>首次读取建立当前状态；之后的变化会记录在这里。</p></div>'}</section>`;
 }
 function render(){
-  $('#app').innerHTML=`<div class="shell"><header class="title-bar"><div class="brand"><img src="/mark.svg" alt=""><strong>PaperTrail</strong></div>
+  $('#app').innerHTML=`<div class="shell"><header class="title-bar"><div class="brand"><img src="/mark.svg" alt=""><strong>PaperTrail</strong><span>v${esc(desktopInfo?.version||live.version||'')}</span></div>
     <button class="icon-button settings-link" data-action="settings" aria-label="设置与数据" title="设置与数据">${icon('settings')}</button></header>
     <nav class="tabs" aria-label="页面导航"><button class="nav ${view==='papers'?'active':''}" data-action="nav" data-id="papers">稿件</button>
     <button class="nav ${view==='accounts'?'active':''}" data-action="nav" data-id="accounts">期刊账号</button>
@@ -100,8 +102,8 @@ function accountForm(id='',journalId=''){
     `<label class="field"><span>期刊</span><select name="journal_id" id="journal-select"><option value="">新增期刊</option>
       ${live.journals.map(j=>`<option value="${esc(j.id)}" ${j.id===selected?'selected':''}>${esc(j.name)}</option>`).join('')}</select></label>
     <div id="new-journal" ${selected?'hidden':''}>${field('journal_name','期刊全名','','text',!selected)}
-      ${field('login_url','投稿网址','','url',!selected,'https://mc.manuscriptcentral.com/...、www.editorialmanager.com/... 或 authors.wiley.com/journal/...')}
-      <p class="help">支持 ScholarOne、IEEE 投稿门户、Editorial Manager／Elsevier 和 Wiley Research Exchange 的期刊入口。</p></div>`}
+      ${field('login_url','投稿网址','','url',!selected,'https://susy.mdpi.com/user/manuscripts 等投稿入口')}
+      <p class="help">支持 ScholarOne、IEEE 投稿门户、Editorial Manager／Elsevier、Wiley Research Exchange 和 MDPI SuSy。</p></div>`}
     ${field('username','登录账号',account?.username||'','text',true,'邮箱或用户名')}
     ${field('password','密码','','password',!account,account?'留空保留已保存密码':'')}
     ${journal?.platform==='IEEE Research Exchange'?'<p class="help">此投稿入口使用 IEEE 账号密码，登录页面中的 IEEE 账号与 ScholarOne 期刊账号可能不同。</p>':''}
@@ -118,8 +120,10 @@ function journalForm(id){
 }
 function detail(id){
   const paper=paperFor(id),account=accountFor(paper),journal=journalFor(account),changes=changesFor(id);
+  const previousNumbers=JSON.parse(paper.number_aliases||'[]');
   $('#modal').innerHTML=`<div class="modal-head"><h2>稿件 ${esc(paper.number||'待识别')}</h2><button class="close" data-action="close" aria-label="关闭">×</button></div>
     <div class="modal-body"><p class="help">${esc(journal?.name||'')} · ${esc(account?.username||'')}</p>
+    ${previousNumbers.length?`<p class="help">历史稿件号：${previousNumbers.map(esc).join('、')}</p>`:''}
     <p class="detail-status">${esc(statusText(paper))}</p><p class="help">本地变化 ${paper.change_count} 次 · 最近变化：${esc(dateText(paper.last_changed_at))}</p>
     <h3>变化记录</h3>
     ${changes.length?changes.map(e=>`<div class="detail-event"><time>${esc(dateText(e.happened_at))}</time>
@@ -135,8 +139,10 @@ function settingsForm(){
   const zone=live.profile?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone;
   const prefs=desktopInfo?.preferences||{keepRunning:true,startAtLogin:false};
   modal('设置与数据',`<div class="setting-block"><h3>自动刷新</h3>
-    <label class="check"><input type="checkbox" name="enabled" ${live.auto_refresh?.enabled?'checked':''}>启用每小时刷新</label>
-    <p class="help">每天 08:00、09:00 … 23:00、次日 00:00；关闭窗口后保持运行时生效。</p>
+    <label class="check"><input type="checkbox" name="enabled" ${live.auto_refresh?.enabled?'checked':''}>启用自动刷新</label>
+    <p class="help">按所选时区每天在指定时间刷新；关闭窗口后保持运行时生效。</p>
+    <div id="refresh-times" class="time-list">${(live.auto_refresh?.times||[]).map(value=>`<span class="time-chip" data-time="${esc(value)}">${esc(value)}<button type="button" data-action="remove-time" aria-label="删除 ${esc(value)}">×</button></span>`).join('')}</div>
+    <div class="button-row"><input type="time" id="new-refresh-time" aria-label="新增刷新时间"><button type="button" class="button secondary" data-action="add-time">添加时间点</button></div>
     <label class="field"><span>时区</span><select name="timezone">${[...new Set([zone,...zones])].map(value=>`<option value="${esc(value)}" ${zone===value?'selected':''}>${esc(value)}</option>`).join('')}</select></label></div>
     ${desktopInfo?`<div class="setting-block"><h3>桌面应用</h3>
       <label class="check"><input type="checkbox" name="keepRunning" ${prefs.keepRunning?'checked':''}>关闭窗口后继续运行</label>
@@ -145,7 +151,8 @@ function settingsForm(){
       <button type="button" class="button secondary" data-action="backup">导出备份</button>
       <button type="button" class="button secondary" data-action="restore">恢复备份</button>
       <button type="button" class="button secondary" data-action="open-data">打开数据目录</button>
-      <button type="button" class="button secondary" data-action="updates">检查更新</button></div></div>`:''}`,'settings');
+      <button type="button" class="button secondary" data-action="updates">检查并安装更新</button></div>
+      <p class="help">当前版本 ${esc(desktopInfo.version)}</p></div>`:''}`,'settings');
 }
 async function refresh(body={}){
   if(busy)return;busy=true;render();toast(body.interactive?'请在验证窗口完成登录':'正在读取投稿状态…');
@@ -175,6 +182,14 @@ document.addEventListener('click',async event=>{
     else if(action==='edit-journal')journalForm(id);
     else if(action==='detail')detail(id);
     else if(action==='settings')settingsForm();
+    else if(action==='add-time'){
+      const value=$('#new-refresh-time').value;
+      if(!value)throw new Error('请选择刷新时间');
+      if([...document.querySelectorAll('#refresh-times [data-time]')].some(item=>item.dataset.time===value))throw new Error('这个时间点已添加');
+      const chip=document.createElement('span');chip.className='time-chip';chip.dataset.time=value;
+      chip.textContent=value;const remove=document.createElement('button');remove.type='button';remove.dataset.action='remove-time';remove.setAttribute('aria-label','删除 '+value);remove.textContent='×';chip.append(remove);$('#refresh-times').append(chip);$('#new-refresh-time').value='';
+    }
+    else if(action==='remove-time')button.closest('[data-time]').remove();
     else if(action==='close')$('#modal').close();
     else if(action.startsWith('delete-'))confirmDelete(action.slice(7),id);
     else if(action==='verify')await verifyAccount(id);
@@ -192,6 +207,12 @@ document.addEventListener('change',event=>{
     for(const name of ['journal_name','login_url'])$('#editor-form [name="'+name+'"]').required=fresh;
   }
 });
+document.addEventListener('toggle',event=>{
+  const details=event.target.closest?.('.log-group');
+  if(!details)return;
+  if(details.open)openLogIds.add(details.dataset.paperId);
+  else openLogIds.delete(details.dataset.paperId);
+},true);
 document.addEventListener('input',event=>{
   if(event.target.id==='search'){
     const pos=event.target.selectionStart;search=event.target.value;render();$('#search').focus();$('#search').setSelectionRange(pos,pos);
@@ -215,7 +236,8 @@ document.addEventListener('submit',async event=>{
       result=await api('/api/'+path+'/'+encodeURIComponent(id)+'/delete',{});
     }else if(kind==='settings'){
       await api('/api/profile',{timezone:body.timezone});
-      await api('/api/schedule',{enabled:body.enabled==='on'});
+      const times=[...form.querySelectorAll('#refresh-times [data-time]')].map(item=>item.dataset.time);
+      await api('/api/schedule',{enabled:body.enabled==='on',times});
       if(desktopInfo){
         const prefs=await window.papertrail.preferences({keepRunning:body.keepRunning==='on',startAtLogin:body.startAtLogin==='on'});
         if(prefs.error)throw new Error(prefs.error);desktopInfo.preferences=prefs.preferences;

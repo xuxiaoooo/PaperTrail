@@ -7,7 +7,8 @@ process.env.PLAYWRIGHT_BROWSERS_PATH=process.env.PAPERTRAIL_TEST_COMPONENTS_DIR|
  const {browserLaunchOptions}=await import(pathToFileURL(path.join(root,'src/readers/browser_launch.mjs')).href);
  const checks=[];
  for(const name of ['chromium','firefox']){
-  const browser=await tools[name].launch(browserLaunchOptions(tools[name],{headless:true}));
+  const browser=await tools[name].launch(browserLaunchOptions(tools[name],
+    name==='chromium'?{headless:true,channel:'chromium'}:{headless:true}));
   try{const page=await browser.newPage();await page.setContent('<title>PaperTrail runtime check</title><p>runtime ready</p>');
    if(await page.title()!=='PaperTrail runtime check')throw new Error(name+' failed');
    checks.push({engine:name,version:browser.version(),ok:true});
