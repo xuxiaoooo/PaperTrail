@@ -2,16 +2,15 @@
 import {mkdir,chmod} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {readerCookies,saveReaderSession} from './reader_session.mjs';
-import {browserLaunchOptions} from './browser_launch.mjs';
+import {chromeLaunchOptions} from './browser_launch.mjs';
 const sessions=new WeakMap();
 export async function openReaderContext(input,options) {
   await mkdir(input.profile_dir,{recursive:true,mode:0o700});
   if(process.platform!=='win32') await chmod(input.profile_dir,0o700);
   const module=await import(pathToFileURL(input.browser_module).href);
-  const type=module[input.browser_engine==='firefox'?'firefox':'chromium'];
+  const type=module.chromium;
   const cookies=await readerCookies(input);
-  const launch=input.browser_engine==='firefox'?options:{...options,channel:'chromium'};
-  const context=await type.launchPersistentContext(input.profile_dir,browserLaunchOptions(type,launch));
+  const context=await type.launchPersistentContext(input.profile_dir,chromeLaunchOptions(options));
   if(input.reset_session) {
     await context.clearCookies();
     await context.addInitScript(()=>{sessionStorage.clear();localStorage.clear();});

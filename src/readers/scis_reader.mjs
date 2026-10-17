@@ -16,13 +16,13 @@ try {
   if (!isScholarOneUrl(input.login_url)) {
     throw new Error('unsupported_journal');
   }
-  const useFirefox = input.browser_engine === 'firefox';
   await mkdir(input.profile_dir, {recursive: true, mode: 0o700});
   if(process.platform!=='win32') await chmod(input.profile_dir, 0o700);
   if(!context) {
     context=await openReaderContext(input, {
-    ...(useFirefox ? {} : {chromiumSandbox:true}),
-    headless: input.interactive !== true,
+    chromiumSandbox:true,
+    // ScholarOne blocks headless Chrome; background reads use a regular Chrome window.
+    headless:false,
     viewport: {width: 1280, height: 900},
     timeout: 30000
   });

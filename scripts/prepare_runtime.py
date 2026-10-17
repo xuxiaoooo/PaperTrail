@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
 import urllib.request
 import zipfile
 
@@ -73,26 +72,9 @@ if TARGET == 'macos-arm64':
     subprocess.run(['/usr/bin/swiftc', '-O', '-target', 'arm64-apple-macos14.0',
                     str(ROOT / 'build/config/keychain.swift'), '-o', str(DEST / 'keychain-helper')], check=True)
 
-# Playwright chooses the matched browser revisions; only the target platform changes.
-env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(DEST / 'browsers'))
-if TARGET == 'windows-x64':
-    env['PLAYWRIGHT_HOST_PLATFORM_OVERRIDE'] = 'win64'
-else:
-    env['PLAYWRIGHT_HOST_PLATFORM_OVERRIDE'] = 'mac14-arm64'
-subprocess.run([shutil.which('node'), str(module / 'cli.js'), 'install', '--no-shell', 'chromium', 'firefox'], env=env, check=True)
-for name in ('chromium_headless_shell', 'ffmpeg'):
-    for obsolete in (DEST / 'browsers').glob(name + '-*'):
-        if obsolete.is_dir():
-            shutil.rmtree(obsolete)
-if TARGET == 'macos-arm64':
-    browser_metadata = json.loads((module / 'browsers.json').read_text())
-    revision = next(browser['revision'] for browser in browser_metadata['browsers'] if browser['name'] == 'firefox')
-    resources = DEST / 'browsers' / ('firefox-' + revision) / 'firefox/Nightly.app/Contents/Resources'
-    configuration = (resources / 'application.ini').read_text()
-    configuration = configuration.replace('Vendor=Mozilla', 'Vendor=PaperTrail').replace('Name=Firefox', 'Name=PaperTrail')
-    configuration = configuration.replace('RemotingName=firefox-default', 'RemotingName=papertrail').replace('EnableProfileMigrator=1', 'EnableProfileMigrator=0')
-    (resources / 'browser').mkdir(exist_ok=True)
-    (resources / 'browser/papertrail.ini').write_text(configuration)
+# The installed Google Chrome supplies the only browser executable.
+if (DEST / 'browsers').exists():
+    shutil.rmtree(DEST / 'browsers')
 (DEST / 'runtime-manifest.json').write_text(json.dumps({'target': TARGET, 'python': PYTHON_VERSION,
     'node': 'electron-run-as-node', 'playwright': json.loads((module / 'package.json').read_text())['version'],
     'tzdata': metadata['info']['version']}, indent=2))

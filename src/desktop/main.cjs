@@ -9,7 +9,6 @@ const {githubReleaseFor,downloadVerified,stageMacUpdate,displayVersion} = requir
 const brand=require('./brand.cjs');
 const {dataPath:resolveDataPath}=require('./data-path.cjs');
 const {mainSize,popupBounds}=require('./window-layout.cjs');
-const {componentsReady,componentCacheDirectory} = require(app.isPackaged?path.join(process.resourcesPath,'src/desktop/browser-components.cjs'):'./browser-components.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'papertrail',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 const project = path.resolve(__dirname,'../..');
@@ -22,12 +21,10 @@ const dataPath=resolveDataPath({appData:app.getPath('appData'),localAppData:proc
   override:process.env.PAPERTRAIL_TEST_DATA_DIR});
 app.setPath('userData',dataPath);
 app.setName(brand.name);
-const componentCache=componentCacheDirectory({runtime,dataPath,packaged:app.isPackaged,override:process.env.PAPERTRAIL_TEST_COMPONENTS_DIR});
 if(process.platform==='win32') app.setAppUserModelId(brand.appId);
 const singleInstance = app.requestSingleInstanceLock();
 let window, popup, tray, backend, backendBase, quitting=false, stopped=false, mainClosing=false, trayTimer, trayRefresh, lastWindowBounds;
 let restartCount=0;
-let componentInstaller;
 let updateInProgress=false;
 const token=crypto.randomBytes(32).toString('base64url');
 const configPath=path.join(dataPath,'desktop-settings.json');
@@ -79,7 +76,7 @@ function startBackend(){return new Promise((resolve,reject)=>{
     PAPERTRAIL_KEYCHAIN_HELPER:path.join(runtime,'keychain-helper'),
     PAPERTRAIL_TIMEZONE:Intl.DateTimeFormat().resolvedOptions().timeZone,
     PAPERTRAIL_VERSION:displayVersion(app.getVersion()),
-    PLAYWRIGHT_BROWSERS_PATH:componentCache,PYTHONTZPATH:path.join(runtime,'tzdata/zoneinfo'),
+    PYTHONTZPATH:path.join(runtime,'tzdata/zoneinfo'),
     PYTHONUTF8:'1',PYTHONUNBUFFERED:'1',PYTHONDONTWRITEBYTECODE:'1',ELECTRON_RUN_AS_NODE:'1'};
   delete env.PYTHONHOME;delete env.PYTHONPATH;
   const child=spawn(python,['-B','-c','import sys,runpy,os; script=sys.argv.pop(1); sys.path.insert(0,os.path.dirname(script)); runpy.run_path(script,run_name="__main__")',path.join(source,'backend/server.py'),'--port','0'],{
@@ -106,10 +103,6 @@ function startBackend(){return new Promise((resolve,reject)=>{
 async function stopBackend(){
   if(stopped)return;stopped=true;
   closePopup();
-  if(componentInstaller&&componentInstaller.exitCode===null){
-    if(process.platform==='win32')await new Promise(resolve=>spawn('taskkill',['/pid',String(componentInstaller.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'}).once('exit',resolve));
-    else {try{process.kill(-componentInstaller.pid,'SIGTERM');}catch{componentInstaller.kill();}}
-  }
   const child=backend;
   if(!child || child.exitCode!==null)return;
   try{await api('/api/shutdown',{});}catch{}
@@ -120,11 +113,11 @@ async function stopBackend(){
   }
 }
 function allowExternal(url){try{return new URL(url).protocol==='https:';}catch{return false;}}
-function createWindow(setup=false){
+function createWindow(){
   mainClosing=false;
   const area=screen.getPrimaryDisplay().bounds;
-  const size=setup?{width:480,height:380}:mainSize(area);
-  window=new BrowserWindow({...size,...(!setup&&lastWindowBounds?lastWindowBounds:{}),minWidth:320,minHeight:400,show:false,
+  const size=mainSize(area);
+  window=new BrowserWindow({...size,...(lastWindowBounds||{}),minWidth:320,minHeight:400,show:false,
     title:brand.name+' · Manuscripts',backgroundColor:'#f6f5f2',icon:path.join(assets,'icon.png'),
     ...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:12,y:13}}:{}),
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:true}});
@@ -135,34 +128,7 @@ function createWindow(setup=false){
   window.webContents.setWindowOpenHandler(({url})=>{if(allowExternal(url))shell.openExternal(url);return {action:'deny'};});
   window.webContents.on('will-navigate',(event,url)=>{if(!url.startsWith('papertrail://app/')){event.preventDefault();if(allowExternal(url))shell.openExternal(url);}});
   window.webContents.on('render-process-gone',()=>{if(!quitting)window.reload();});
-  return setup?window.loadFile(path.join(__dirname,'setup.html')):window.loadURL('papertrail://app/');
-}
-async function prepareComponents(){
-  if(componentsReady(path.join(runtime,'browser-module/playwright-core'),componentCache))return;
-  await createWindow(true);
-  while(!quitting){
-    try{
-      await new Promise((resolve,reject)=>{
-        const node=process.execPath;
-        const child=spawn(node,[path.join(source,'desktop/install-components.cjs'),componentCache],{
-          windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe'],
-          env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
-        componentInstaller=child;
-        readline.createInterface({input:child.stdout}).on('line',line=>{
-          try{const event=JSON.parse(line);if(!window?.isDestroyed())window?.webContents.send('desktop:setup-progress',event);}catch{}
-        });
-        child.stderr.on('data',data=>log('components: '+String(data).slice(0,4000)));
-        child.on('error',reject);
-        child.on('exit',code=>{componentInstaller=null;code===0?resolve():reject(new Error('请检查网络连接。已完成的组件会保留，重试会继续准备。'));});
-      });
-      return;
-    }catch(error){
-      if(quitting)return;
-      const choice=await dialog.showMessageBox(window,{type:'warning',buttons:['重试','退出'],defaultId:0,cancelId:1,
-        message:'组件下载未完成',detail:error.message});
-      if(choice.response!==0){app.quit();return;}
-    }
-  }
+  return window.loadURL('papertrail://app/');
 }
 function createMenus(){
   const applicationMenu=[{label:brand.name,submenu:[{label:'关于 '+brand.name,click:()=>action('about')},{label:'设置',accelerator:'CmdOrCtrl+,',click:()=>action('settings')},{type:'separator'},{label:'退出 '+brand.name,accelerator:'CmdOrCtrl+Q',click:()=>app.quit()}]},
@@ -302,8 +268,6 @@ if(!singleInstance){app.quit();}else{
   app.whenReady().then(async()=>{
     if(process.platform==='darwin')app.dock.setIcon(path.join(assets,'icon.png'));
     syncDock();
-    await prepareComponents();
-    if(quitting)return;
     await startBackend();
     cleanupPreviousUpdate();
     if(app.isPackaged)app.setLoginItemSettings({openAtLogin:preferences.startAtLogin,args:['--hidden']});

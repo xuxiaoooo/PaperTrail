@@ -7,5 +7,4 @@ contextBridge.exposeInMainWorld('papertrail', Object.freeze({
   checkUpdates: () => ipcRenderer.invoke('desktop:updates'),
   openDataFolder: () => ipcRenderer.invoke('desktop:open-data'),
   onAction: callback => ipcRenderer.on('desktop:action', (_event, action) => callback(action)),
-  onSetupProgress: callback => ipcRenderer.on('desktop:setup-progress', (_event, progress) => callback(progress)),
 }));

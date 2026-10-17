@@ -13,8 +13,8 @@ shutil.copy2(ROOT / 'scripts/Run-Installed-App-Checks.ps1', destination / 'Run-I
     'PaperTrail Windows installed-app checks\n\n'
     'Install PaperTrail, then run in PowerShell:\n'
     '.\\Run-Installed-App-Checks.ps1 -AppDir "C:\\path\\to\\PaperTrail"\n\n'
-    'The checks use the installed Python, Node and Playwright with temporary data.\n'
-    'They test DPAPI, Chromium, Firefox, records, backup/restore,\n'
+    'The checks use the installed Python and Playwright plus system Node.js and Google Chrome with temporary data.\n'
+    'They test DPAPI, Google Chrome, records, backup/restore,\n'
     'background operation and relaunch. Results are written to build/test-results.\n'
     'Installation, shortcuts, tray interaction, overwrite installation and uninstall\n'
     'also need direct checks on the Windows machine.\n', encoding='utf-8')

@@ -4,11 +4,10 @@ $KitRoot = $PSScriptRoot
 $AppDir = (Resolve-Path $AppDir).Path
 $Resources = Join-Path $AppDir 'resources'
 $Runtime = Join-Path $Resources 'runtime'
-$Node = Join-Path $Runtime 'node\node.exe'
+$Node = (Get-Command node -ErrorAction Stop).Source
 $Python = Join-Path $Runtime 'python\python.exe'
 $env:PAPERTRAIL_TEST_EXECUTABLE = Join-Path $AppDir 'PaperTrail.exe'
 $env:PAPERTRAIL_TEST_RUNTIME = $Runtime
-$env:PAPERTRAIL_TEST_COMPONENTS_DIR = Join-Path $env:LOCALAPPDATA 'PaperTrail\components'
 $env:PAPERTRAIL_BROWSER_MODULE = Join-Path $Runtime 'browser-module\playwright-core'
 $env:PAPERTRAIL_BACKEND_DIR = Join-Path $Resources 'src\backend'
 $env:PYTHONUTF8 = '1'
@@ -20,7 +19,7 @@ $SystemInfo | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $ResultDir 
 & $Python -B (Join-Path $KitRoot 'scripts\smoke-credentials.py')
 if ($LASTEXITCODE -ne 0) { throw 'Native credential test failed.' }
 & $Node (Join-Path $KitRoot 'scripts\smoke-browsers.cjs')
-if ($LASTEXITCODE -ne 0) { throw 'Bundled browser test failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Google Chrome test failed.' }
 & $Node (Join-Path $KitRoot 'scripts\smoke-desktop.cjs')
 if ($LASTEXITCODE -ne 0) { throw 'Installed app test failed.' }
 Write-Host ('Validation passed. Results: ' + $ResultDir)

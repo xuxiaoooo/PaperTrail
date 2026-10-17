@@ -13,7 +13,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 RUNTIME=ROOT/'build/runtime/macos-arm64'
 sys.path.insert(0,str(ROOT/'src/backend'))
-os.environ.update(PAPERTRAIL_NODE=str(RUNTIME/'node/bin/node'),PAPERTRAIL_BROWSER_MODULE=str(RUNTIME/'browser-module/playwright-core/index.mjs'),PAPERTRAIL_KEYCHAIN_HELPER=str(RUNTIME/'keychain-helper'),PLAYWRIGHT_BROWSERS_PATH=str(RUNTIME/'browsers'))
+os.environ.update(PAPERTRAIL_NODE=shutil.which('node'),PAPERTRAIL_BROWSER_MODULE=str(RUNTIME/'browser-module/playwright-core/index.mjs'),PAPERTRAIL_KEYCHAIN_HELPER=str(RUNTIME/'keychain-helper'))
 import portal_sync
 import credential_store
 from browser_runtime import close_browsers
@@ -39,13 +39,22 @@ with tempfile.TemporaryDirectory(prefix='papertrail-read-check-') as folder:
  for route,(account,journal,tracked) in selected.items():
   if len(sys.argv)>1 and route not in sys.argv[1:]:continue
   profile=account['id']
+  legacy=None
   if account['login_method'] in ('orcid','elsevier'):
-   profile+='-'+account['login_method']+'-firefox'
-   if account.get('session_generation'):profile+='-'+account['session_generation']
-  elif route=='scholarone':profile+='-firefox'
-  old=DATA/'browser-profiles'/profile
-  if old.is_dir():
-   shutil.copytree(old,data/'browser-profiles'/profile,ignore=shutil.ignore_patterns('Singleton*','RunningChromeVersion','lock','.parentlock','parent.lock','*.log'),ignore_dangling_symlinks=True)
+   suffix='-'+account['login_method']
+   profile+=suffix+'-chrome'
+   legacy=account['id']+suffix+'-firefox'
+   if account.get('session_generation'):
+    profile+='-'+account['session_generation']
+    legacy+='-'+account['session_generation']
+  elif route=='scholarone':
+   profile+='-chrome'
+   legacy=account['id']+'-firefox'
+  for name in (profile,legacy):
+   if not name:continue
+   old=DATA/'browser-profiles'/name
+   if old.is_dir():
+    shutil.copytree(old,data/'browser-profiles'/name,ignore=shutil.ignore_patterns('Singleton*','RunningChromeVersion','lock','.parentlock','parent.lock','*.log'),ignore_dangling_symlinks=True)
   print(json.dumps({'route':route,'phase':'reading'}),flush=True)
   started=monotonic()
   try:

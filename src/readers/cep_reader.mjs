@@ -5,6 +5,7 @@ import {submitOrcidCredentials} from './orcid_login.mjs';
 import {isEditorialManagerUrl} from './portal_urls.mjs';
 import {readEditorialManagerTable,expandEditorialManagerPage} from './editorial_manager_rows.mjs';
 import {matchesTracked} from './manuscript_identity.mjs';
+import {chromeLaunchOptions} from './browser_launch.mjs';
 
 let requestText = '';
 for await (const chunk of process.stdin) requestText += chunk;
@@ -16,19 +17,22 @@ let context, page, stage = 'browser';
 try {
   if (!isEditorialManagerUrl(input.login_url) ||
       input.login_method !== 'orcid') throw new Error('unsupported_journal');
-  const {firefox} = await import(pathToFileURL(input.browser_module).href);
+  const {chromium} = await import(pathToFileURL(input.browser_module).href);
   await mkdir(input.profile_dir, {recursive:true, mode:0o700});
   if(process.platform!=='win32') await chmod(input.profile_dir, 0o700);
-  context = await firefox.launchPersistentContext(input.profile_dir, {
+  context = await chromium.launchPersistentContext(input.profile_dir, chromeLaunchOptions({
     headless:input.interactive !== true, viewport:{width:1280,height:900}, timeout:30000
-  });
+  }));
   // Preserve session cookies across browser restarts. Passwords remain in the keychain.
   const sessionFile = input.profile_dir + '/session-state.json';
   let savedSession = false;
-  try {
-    const state = JSON.parse(await readFile(sessionFile, 'utf8'));
-    if (state.cookies?.length) { await context.addCookies(state.cookies); savedSession = true; }
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for(const file of [sessionFile,input.legacy_session_dir&&input.legacy_session_dir+'/session-state.json'].filter(Boolean)){
+    try{
+      const state=JSON.parse(await readFile(file,'utf8'));
+      if(state.cookies?.length){await context.addCookies(state.cookies);savedSession=true;}
+      break;
+    }catch(error){if(error.code!=='ENOENT')throw error;}
+  }
   page = context.pages()[0] || await context.newPage();
   page.setDefaultTimeout(20000);
   page.setDefaultNavigationTimeout(40000);

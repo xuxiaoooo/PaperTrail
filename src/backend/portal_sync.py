@@ -72,7 +72,7 @@ def read_account(account, journal, tracked, data_dir, interactive=False, connect
     elsevier = login_method == 'elsevier'
     sso = orcid or elsevier
     provider = 'Elsevier' if elsevier else 'ORCID'
-    firefox_scholarone = is_scholarone(journal['login_url'])
+    scholarone = is_scholarone(journal['login_url'])
     wiley = is_wiley(journal['login_url'])
     ieee = is_ieee_portal(journal['login_url'])
     mdpi = is_mdpi_susy(journal['login_url'])
@@ -89,20 +89,26 @@ def read_account(account, journal, tracked, data_dir, interactive=False, connect
         except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
             raise PortalError(str(exc)) from None
     profile_name = account['id']
+    legacy_profile_name = None
     if sso:
-        profile_name += '-' + login_method + '-firefox'
+        suffix = '-' + login_method
+        profile_name += suffix + '-chrome'
+        legacy_profile_name = account['id'] + suffix + '-firefox'
         if account.get('session_generation'):
             profile_name += '-' + account['session_generation']
-    elif firefox_scholarone:
-        profile_name += '-firefox'
+            legacy_profile_name += '-' + account['session_generation']
+    elif scholarone:
+        profile_name += '-chrome'
+        legacy_profile_name = account['id'] + '-firefox'
     payload = {
         'login_url': journal['login_url'], 'username': account['username'],
         'password': password, 'journal_name': journal['name'], 'tracked': [
             {'number':p['number'], 'title_en':p['title_en']} for p in tracked],
         'browser_module': str(module),
         'profile_dir': str(data_dir / 'browser-profiles' / profile_name),
+        'legacy_session_dir': str(data_dir / 'browser-profiles' / legacy_profile_name)
+        if legacy_profile_name else '',
         'interactive': interactive, 'connect_only': connect_only, 'login_method': login_method,
-        'browser_engine': 'firefox' if firefox_scholarone or sso else 'chromium'
     }
     password = ''
     try:
@@ -134,7 +140,7 @@ def read_account(account, journal, tracked, data_dir, interactive=False, connect
             'credentials_rejected':('IEEE 提示账号或密码不正确。该入口需要 IEEE 账号密码，请在账号管理中修改后重试'
                                     if ieee else '期刊网站提示账号或密码不正确，请在账号管理中修改后重试'),
             'account_unavailable':'期刊网站提示账号暂不可用，请打开投稿网站查看账号提示',
-            'browser_unavailable':'未能启动投稿读取组件，请检查应用中的浏览器组件是否完整',
+            'browser_unavailable':'未能启动 Google Chrome，请确认已安装并能正常打开 Chrome',
             'site_unavailable':'投稿网站暂时无法连接，请稍后重试；现有记录已保留',
             'sso_login_required':f'请先为这个 {provider} 账号保存密码，或点击“打开验证窗口”完成登录',
             'elsevier_login_incomplete':'Elsevier 登录未完成，请核对账号密码；如需验证码，可点击“打开验证窗口”',

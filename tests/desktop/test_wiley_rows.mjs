@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {readWileyPage, wileyRows} from '../../src/readers/wiley_rows.mjs';
 
 assert.deepEqual(wileyRows([
@@ -9,11 +7,8 @@ assert.deepEqual(wileyRows([
   {number:'M-002', raw_status:'', publication:'Example Journal'}
 ], 'Example Journal'), [{number:'M-001', raw_status:'Under Review', title_en:'Example', submitted_at:'', status_date:''}]);
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-process.env.PLAYWRIGHT_BROWSERS_PATH ||= path.join(root, 'build/runtime',
-  process.platform === 'darwin' ? 'macos-arm64' : 'windows-x64', 'browsers');
 const {chromium} = await import('playwright-core');
-const browser = await chromium.launch({headless:true,channel:'chromium'});
+const browser = await chromium.launch({headless:true,channel:'chrome'});
 try {
   const page = await browser.newPage();
   await page.setContent(`<section data-testid="article-card-123">

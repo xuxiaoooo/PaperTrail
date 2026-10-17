@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {readResearchExchangePage} from '../../src/readers/research_exchange_rows.mjs';
 import {advanceIeeeLogin} from '../../src/readers/research_exchange_login.mjs';
 import {readerCookies as researchExchangeCookies,saveReaderSession as saveResearchExchangeSession} from '../../src/readers/reader_session.mjs';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-process.env.PLAYWRIGHT_BROWSERS_PATH ||= path.join(root,'build/runtime',process.platform==='darwin'?'macos-arm64':'windows-x64','browsers');
 const {chromium}=await import('playwright-core');
-const browser=await chromium.launch({headless:true,channel:'chromium'});
+const browser=await chromium.launch({headless:true,channel:'chrome'});
 try {
   const page=await browser.newPage();
   const card=(journal,number,status,title)=>`<div class="submissionsListItem">

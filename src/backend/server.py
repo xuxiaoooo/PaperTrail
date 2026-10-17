@@ -201,7 +201,7 @@ def state():
                 a['sync_error'] for a in result['accounts'] if a['id'] in used_accounts):
             complete_through = min(p['last_success'] for p in papers)
             result['last_checked_at'] = max(result['last_checked_at'] or '', complete_through)
-    result.update(token=TOKEN, keychain_ready=credential_store.ready(), version=os.environ.get('PAPERTRAIL_VERSION','1.2'), profile=PROFILE.state(),
+    result.update(token=TOKEN, keychain_ready=credential_store.ready(), version=os.environ.get('PAPERTRAIL_VERSION','1.2.1'), profile=PROFILE.state(),
                   auto_refresh=SCHEDULE.state(), sync_in_progress=SYNC_LOCK.locked())
     return result
 
@@ -337,7 +337,8 @@ def delete_records(kind, identifier):
                 account_id = account['id']
                 profiles = DATA / 'browser-profiles'
                 if profiles.is_dir():
-                    pattern = re.compile(re.escape(account_id) + r'(?:-firefox|-(?:orcid|elsevier)-firefox(?:-[A-Za-z0-9-]+)?)?')
+                    pattern = re.compile(re.escape(account_id) +
+                                         r'(?:-(?:firefox|chrome)|-(?:orcid|elsevier)-(?:firefox|chrome)(?:-[A-Za-z0-9-]+)?)?')
                     for profile in profiles.iterdir():
                         if pattern.fullmatch(profile.name):
                             close_profile(profile)

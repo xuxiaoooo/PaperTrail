@@ -11,9 +11,8 @@ import {readerCookies, saveReaderSession} from '../../src/readers/reader_session
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const target = process.platform === 'darwin' ? 'macos-arm64' : 'windows-x64';
 const runtime = process.env.PAPERTRAIL_TEST_RUNTIME || path.join(root, 'build/runtime', target);
-process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(runtime, 'browsers');
 const profile = await mkdtemp(path.join(os.tmpdir(), 'papertrail-em-login-'));
-const input = {profile_dir: profile, browser_engine: 'chromium',
+const input = {profile_dir: profile,
   browser_module: path.join(runtime, 'browser-module/playwright-core/index.mjs'),
   username: 'fixture-author', password: '', interactive: false};
 const base = 'https://www.editorialmanager.com/fixture/';

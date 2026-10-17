@@ -14,7 +14,7 @@ async function read(input) {
   try {
     if (!isMdpiSusyUrl(input.login_url) || input.login_method !== 'password') throw new Error('unsupported_journal');
     if (!context) {
-      context=await openReaderContext(input,{headless:input.interactive!==true,channel:'chromium',
+      context=await openReaderContext(input,{headless:input.interactive!==true,
         chromiumSandbox:true,viewport:{width:1280,height:900},timeout:30000});
       context.on('close',()=>{context=undefined;page=undefined;});
     }

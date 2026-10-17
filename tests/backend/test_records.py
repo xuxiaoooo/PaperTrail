@@ -80,7 +80,7 @@ class RecordsTest(unittest.TestCase):
         self.assertTrue(state['last_checked_at'])
         self.assertTrue(all(p['last_success'] for p in state['manuscripts'] if p['id'] in (paused, closed)))
 
-    def test_wiley_routes_password_account_to_chromium_reader(self):
+    def test_wiley_routes_password_account_to_chrome_reader(self):
         from types import SimpleNamespace
         with patch.object(self.app,'save_password',return_value=True):
             identifier=self.app.account_save(dict(username='reader@example.test',password='synthetic-secret',
@@ -98,7 +98,7 @@ class RecordsTest(unittest.TestCase):
             self.app.portal_sync.read_account(account,journal,[],self.app.DATA)
             payload=json.loads(run.call_args.kwargs['input'])
             self.assertEqual(payload['username'],'reader@example.test')
-            self.assertEqual(payload['browser_engine'],'chromium')
+            self.assertEqual(payload['legacy_session_dir'],'')
             self.assertTrue(payload['profile_dir'].endswith(identifier))
             self.assertFalse(payload['interactive'])
             self.assertEqual(Path(run.call_args.args[0][1]).name,'wiley_reader.mjs')
@@ -210,7 +210,8 @@ class RecordsTest(unittest.TestCase):
             payload=json.loads(run.call_args.kwargs['input'])
             self.assertEqual(payload['login_method'],'elsevier')
             self.assertEqual(payload['password'],'synthetic-secret')
-            self.assertTrue(payload['profile_dir'].endswith(identifier+'-elsevier-firefox'))
+            self.assertTrue(payload['profile_dir'].endswith(identifier+'-elsevier-chrome'))
+            self.assertTrue(payload['legacy_session_dir'].endswith(identifier+'-elsevier-firefox'))
             self.assertFalse(payload['interactive'])
             self.assertEqual(Path(run.call_args.args[0][1]).name,'elsevier_reader.mjs')
         account=next(a for a in self.app.state()['accounts'] if a['id']==identifier)
@@ -235,7 +236,7 @@ class RecordsTest(unittest.TestCase):
             self.assertEqual(self.app.refresh({'manuscript_id':paper})['checked'],0)
         self.assertEqual(self.app.state()['manuscripts'],before)
 
-    def test_new_scholarone_journal_is_recognized_and_uses_its_own_firefox_session(self):
+    def test_new_scholarone_journal_is_recognized_and_uses_its_own_chrome_session(self):
         from types import SimpleNamespace
         with patch.object(self.app,'save_password',return_value=True):
             identifier=self.app.account_save(dict(username='future-journal-account',password='synthetic-secret',
@@ -253,9 +254,9 @@ class RecordsTest(unittest.TestCase):
             self.app.portal_sync.read_account(account,journal,[],self.app.DATA)
             credential.assert_called_once_with(identifier)
             payload=json.loads(run.call_args.kwargs['input'])
-            self.assertEqual(payload['browser_engine'],'firefox')
             self.assertFalse(payload['interactive'])
-            self.assertTrue(payload['profile_dir'].endswith(identifier+'-firefox'))
+            self.assertTrue(payload['profile_dir'].endswith(identifier+'-chrome'))
+            self.assertTrue(payload['legacy_session_dir'].endswith(identifier+'-firefox'))
             self.assertEqual(Path(run.call_args.args[0][1]).name,'scis_reader.mjs')
         for url in ('https://mc.manuscriptcentral.com/taes','https://mc03.manuscriptcentral.com/scis/'):
             self.assertTrue(self.app.portal_sync.is_scholarone(url))
@@ -345,7 +346,8 @@ class RecordsTest(unittest.TestCase):
             run.assert_called_once()
             payload=json.loads(run.call_args.kwargs['input'])
             self.assertEqual(payload['password'],'')
-            self.assertIn(account+'-orcid-firefox',payload['profile_dir'])
+            self.assertIn(account+'-orcid-chrome',payload['profile_dir'])
+            self.assertIn(account+'-orcid-firefox',payload['legacy_session_dir'])
             self.assertEqual(Path(run.call_args.args[0][1]).name,'cep_reader.mjs')
             self.assertTrue(payload['connect_only'])
 
@@ -366,7 +368,7 @@ class RecordsTest(unittest.TestCase):
             self.assertEqual(reader['password'],'synthetic-secret')
             self.assertEqual(reader['username'],'test-orcid-account')
             self.assertFalse(reader['interactive'])
-            self.assertIn(account+'-orcid-firefox',reader['profile_dir'])
+            self.assertIn(account+'-orcid-chrome',reader['profile_dir'])
         # Changing the ORCID identity without a replacement password must not reuse the old credential.
         self.app.account_save(dict(username='different-orcid-account'),account)
         updated=next(a for a in self.app.state()['accounts'] if a['id']==account)
@@ -856,14 +858,15 @@ class RecordsTest(unittest.TestCase):
             con.execute('INSERT INTO account_sync(account_id) VALUES(?)', (selected,))
             con.execute('UPDATE accounts SET has_password=1 WHERE id=?', (selected,))
         profiles = self.app.DATA / 'browser-profiles'
-        names = [selected, selected+'-firefox', selected+'-orcid-firefox-generation',
-                 selected+'-elsevier-firefox', other, selected+'-unrelated']
+        names = [selected, selected+'-firefox', selected+'-chrome',
+                 selected+'-orcid-firefox-generation', selected+'-orcid-chrome-generation',
+                 selected+'-elsevier-firefox', selected+'-elsevier-chrome', other, selected+'-unrelated']
         for name in names:
             (profiles/name).mkdir(parents=True)
         with patch.object(self.app.credential_store, 'delete') as credentials, patch.object(self.app, 'close_profile') as close:
             self.app.delete_records('account', selected)
             credentials.assert_called_once_with(selected)
-            self.assertEqual(close.call_count, 4)
+            self.assertEqual(close.call_count, 7)
         data = self.app.state()
         self.assertEqual([a['id'] for a in data['accounts']], [other])
         self.assertEqual([p['id'] for p in data['manuscripts']], [kept])

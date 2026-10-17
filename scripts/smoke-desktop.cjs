@@ -5,9 +5,8 @@ const data=fs.mkdtempSync(path.join(os.tmpdir(),'papertrail-desktop-check-'));
 const output=path.join(root,'build/test-results');fs.mkdirSync(output,{recursive:true});
 const binary=process.env.PAPERTRAIL_TEST_EXECUTABLE;
 const report={target:process.platform+'-'+process.arch,packaged:Boolean(binary),checks:[],errors:[],testData:data};
-const components=process.env.PAPERTRAIL_TEST_COMPONENTS_DIR||path.join(root,'build/runtime',process.platform==='darwin'?'macos-arm64':'windows-x64','browsers');
 const launch=(hidden=false)=>_electron.launch({...(binary?{executablePath:binary,args:hidden?['--hidden']:[]}:{args:[root,...(hidden?['--hidden']:[])]}),env:{...process.env,
-  PAPERTRAIL_TEST_DATA_DIR:data,PAPERTRAIL_TEST_COMPONENTS_DIR:components,PAPERTRAIL_TEST_OFFLINE:'1'},timeout:60000});
+  PAPERTRAIL_TEST_DATA_DIR:data},timeout:60000});
 let app;
 async function waitForDock(visible){
   if(process.platform!=='darwin')return;
