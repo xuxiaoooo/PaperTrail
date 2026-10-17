@@ -62,4 +62,4 @@ jobs:
 
           Mac 支持 Apple Silicon、macOS 14 及更新版本；Windows 提供 x64 安装包。Mac 包未经过 Apple 公证。安装不会清除本地稿件、变化日志或设置。可使用随附的 SHA256SUMS.txt 核对文件。
           NOTES
-          gh release create "v$VERSION" +            "release/macos-arm64/PaperTrail-$VERSION-Mac.dmg" +            "release/windows-x64/PaperTrail-$VERSION-Windows.exe" +            release/SHA256SUMS.txt release/release-manifest.json +            --target "$BUILD_SHA" --title "PaperTrail $VERSION" +            --notes-file "$RUNNER_TEMP/notes.md" --latest
+          gh release create "v$VERSION" "release/macos-arm64/PaperTrail-$VERSION-Mac.dmg" "release/windows-x64/PaperTrail-$VERSION-Windows.exe" release/SHA256SUMS.txt release/release-manifest.json --target "$BUILD_SHA" --title "PaperTrail $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --latest
