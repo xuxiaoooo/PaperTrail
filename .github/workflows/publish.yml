@@ -1,0 +1,65 @@
+name: Publish desktop release
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Desktop builds run ID
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify the build run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          info=$(gh api "repos/${{ github.repository }}/actions/runs/$BUILD_RUN_ID")
+          test "$(echo "$info" | jq -r .conclusion)" = success
+          build_sha=$(echo "$info" | jq -r .head_sha)
+          git merge-base --is-ancestor "$build_sha" HEAD
+          echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.build_run_id }}
+          pattern: PaperTrail-*
+          path: artifacts
+          github-token: ${{ github.token }}
+      - name: Collect and verify installers
+        run: |
+          version=$(node -p "require('./package.json').version")
+          mac=$(find artifacts -type f -name "PaperTrail-$version-Mac.dmg" -print -quit)
+          windows=$(find artifacts -type f -name "PaperTrail-$version-Windows.exe" -print -quit)
+          test -n "$mac"
+          test -n "$windows"
+          test "$(find artifacts -type f -name "PaperTrail-$version-Mac.dmg" | wc -l)" -eq 1
+          test "$(find artifacts -type f -name "PaperTrail-$version-Windows.exe" | wc -l)" -eq 1
+          mkdir -p build/work/macos-arm64 build/work/windows-x64
+          cp "$mac" "build/work/macos-arm64/PaperTrail-$version-Mac.dmg"
+          cp "$windows" "build/work/windows-x64/PaperTrail-$version-Windows.exe"
+          node scripts/collect-release.cjs
+          test "$(node -p "require('./release/release-manifest.json').artifacts.length")" -eq 2
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          ## PaperTrail 1.2.1
+
+          - 所有投稿平台统一使用电脑上已安装的 Google Chrome；不再下载或打包 Firefox、Chromium。
+          - 修复标准 Mac 安装包中 ScholarOne 在打开网站前报“读取组件不可用”的问题。已用真实 ScholarOne 账号验证 Chrome 连接。
+          - ScholarOne 的无界面 Chrome 会被网站安全验证拦截，因此自动读取会打开 Chrome 窗口。首次切换时会尝试沿用旧会话 Cookie；网站仍可能要求重新登录或验证。
+          - 安装前需已有 Google Chrome。旧版留下的 PaperTrail 浏览器缓存不再使用；需要释放空间时，可退出应用后删除 PaperTrail 数据目录中的 components 文件夹。
+
+          Mac 支持 Apple Silicon、macOS 14 及更新版本；Windows 提供 x64 安装包。Mac 包未经过 Apple 公证。安装不会清除本地稿件、变化日志或设置。可使用随附的 SHA256SUMS.txt 核对文件。
+          NOTES
+          gh release create "v$VERSION" +            "release/macos-arm64/PaperTrail-$VERSION-Mac.dmg" +            "release/windows-x64/PaperTrail-$VERSION-Windows.exe" +            release/SHA256SUMS.txt release/release-manifest.json +            --target "$BUILD_SHA" --title "PaperTrail $VERSION" +            --notes-file "$RUNNER_TEMP/notes.md" --latest
